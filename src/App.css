@@ -1,0 +1,49 @@
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 3s infinite ease-in-out;
+}
+
+/* Character Sprite Animations */
+.sprite-character {
+  width: 32px;
+  height: 32px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  /* Zoom the sprite a bit for better visibility */
+  transform: scale(2);
+  transform-origin: bottom;
+}
+
+.sprite-idle {
+  background-image: url('/images/Unarmed_Idle_with_shadow.png');
+  animation: idle-anim 1.2s steps(12) infinite;
+}
+
+.sprite-walk {
+  background-image: url('/images/Unarmed_Walk_with_shadow.png');
+  animation: walk-anim 0.8s steps(6) infinite;
+}
+
+@keyframes idle-anim {
+  from { background-position-x: 0px; }
+  to { background-position-x: -384px; } /* 32px * 12 */
+}
+
+@keyframes walk-anim {
+  from { background-position-x: 0px; }
+  to { background-position-x: -192px; } /* 32px * 6 */
+}
+
+/* Directions based on row (32px height) */
+.dir-down { background-position-y: 0px; }
+.dir-up { background-position-y: -32px; }
+.dir-left { background-position-y: -64px; }
+.dir-right { background-position-y: -96px; }
