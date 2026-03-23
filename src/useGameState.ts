@@ -12,12 +12,13 @@ export const useGameState = () => {
   const [exploredTerritory, setExploredTerritory] = useState(null);
   const [spawnedResources, setSpawnedResources] = useState([]);
   const [lastSpawnLocations, setLastSpawnLocations] = useState([]);
-  const [buildings, setBuildings] = useState([
-    { id: 'initial-heart-tree', type: 'heart-tree', offset: { x: 0, y: 0 } }
-  ]);
+  const [buildings, setBuildings] = useState<any[]>(() => {
+    const saved = localStorage.getItem('warden_buildings');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [totalDistanceWalked, setTotalDistanceWalked] = useState(0);
-  const [avatarPos, setAvatarPos] = useState({ x: 0, y: 0 });
-  const [villageZoom, setVillageZoom] = useState(1);
+  const [avatarPos, setAvatarPos] = useState({ x: 0, y: 0 }); // Center of the grid
+  const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
 
   // 2. ALL USECALLBACK AFTER USESTATE
   const moveAvatar = useCallback((dx: number, dy: number) => {
@@ -35,7 +36,7 @@ export const useGameState = () => {
       
       if (newMilestone > oldMilestone) {
         const reward = (newMilestone - oldMilestone) * 10;
-        setResources((r: any) => ({ ...r, coins: (r.coins || 0) + reward }));
+        setResources((r: any) => ({ ...r, pebbles: (r.pebbles || 0) + reward }));
       }
       return newTotal;
     });
@@ -108,6 +109,78 @@ export const useGameState = () => {
     }));
   }, []);
 
+  const interactWithBuilding = useCallback((id: string, action: string, data?: any) => {
+    setBuildings(prev => prev.map(b => {
+      if (b.id !== id) return b;
+      const gs = b.growthState;
+      const now = Date.now();
+
+      switch (action) {
+        case 'select-produce':
+          // Selection moves from level 1 to level 2
+          return {
+            ...b,
+            growthState: {
+              ...gs,
+              produceType: data.produceType,
+              currentLevel: 2,
+              startTime: now,
+              lastUpdate: now
+            }
+          };
+        case 'water':
+          // Watering moves from level 3 to level 4
+          if (gs.currentLevel === 3) {
+            return {
+              ...b,
+              growthState: {
+                ...gs,
+                currentLevel: 4,
+                harvestReadyAt: now,
+                lastUpdate: now
+              }
+            };
+          }
+          break;
+        case 'harvest':
+          if (gs.currentLevel === 4) {
+            setResources((r: any) => ({ ...r, coins: r.coins + 20 })); 
+            // Revert to level 1 (empty wheat state)
+            return {
+              ...b,
+              growthState: {
+                ...gs,
+                produceType: null,
+                currentLevel: 1,
+                startTime: now,
+                lastUpdate: now
+              }
+            };
+          }
+          break;
+        case 'clear':
+          if (gs.isDead) {
+            return {
+              ...b,
+              growthState: {
+                ...gs,
+                produceType: null,
+                currentLevel: 1,
+                isDead: false,
+                startTime: now,
+                lastUpdate: now
+              }
+            };
+          }
+          break;
+        case 'remove':
+          if (gs.currentLevel === 1 && !gs.produceType) return null;
+          break;
+      }
+      return b;
+    }).filter(Boolean));
+  }, [setResources]);
+
   const addBuilding = useCallback((type: string, cost: any, position: any = null) => {
     // We need to check resources and update them together
     setResources((prev: any) => {
@@ -132,7 +205,26 @@ export const useGameState = () => {
           x: (Math.random() - 0.5) * 300, 
           y: (Math.random() - 0.5) * 300 
         };
-        return [...prevBuildings, { id: newId, type, offset }];
+        
+        const newBuilding: any = { id: newId, type, offset };
+        
+        if (type === 'garden-bed') {
+          // Calculate grid coordinates from position (world coordinates)
+          const gridX = Math.floor((offset.x + (20 * 32) / 2) / 32);
+          const gridY = Math.floor((offset.y + (20 * 32) / 2) / 32);
+          
+          newBuilding.growthState = {
+            id: newId,
+            coordinates: { x: gridX, y: gridY },
+            produceType: null,
+            currentLevel: 1, // Start at level 1
+            startTime: Date.now(),
+            lastUpdate: Date.now(),
+            isDead: false
+          };
+        }
+        
+        return [...prevBuildings, newBuilding];
       }
       return prevBuildings;
     });
@@ -141,6 +233,57 @@ export const useGameState = () => {
   }, [resources, setResources, setBuildings]);
 
   // 3. ALL USEEFFECT AT THE BOTTOM
+  // Persistence
+  useEffect(() => {
+    localStorage.setItem('warden_buildings', JSON.stringify(buildings));
+  }, [buildings]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setBuildings(prev => {
+        let changed = false;
+        const now = Date.now();
+        const next = prev.map(b => {
+          if (b.type === 'garden-bed' && b.growthState) {
+            const gs = b.growthState;
+            if (gs.isDead || !gs.produceType) return b;
+
+            const elapsedTime = now - gs.startTime;
+            
+            // 1. Automatic Growth (2 -> 3)
+            if (gs.currentLevel === 2) {
+              const nextLevel = elapsedTime > 300000 ? 3 : 2;
+              if (nextLevel !== gs.currentLevel) {
+                changed = true;
+                const update: any = { ...gs, currentLevel: nextLevel, lastUpdate: now, waterNeededAt: now };
+                return { ...b, growthState: update };
+              }
+            }
+
+            // 2. Death Timer at Stage 3 (Watering Gate)
+            if (gs.currentLevel === 3 && gs.waterNeededAt) {
+              if (now - gs.waterNeededAt > 86400000) { // 24 hours
+                changed = true;
+                return { ...b, growthState: { ...gs, isDead: true, lastUpdate: now } };
+              }
+            }
+
+            // 3. Death Timer at Stage 4 (Harvest Window)
+            if (gs.currentLevel === 4 && gs.harvestReadyAt) {
+              if (now - gs.harvestReadyAt > 86400000) { // 24 hours
+                changed = true;
+                return { ...b, growthState: { ...gs, isDead: true, lastUpdate: now } };
+              }
+            }
+          }
+          return b;
+        });
+        return changed ? next : prev;
+      });
+    }, 10000); 
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     if (!exploredTerritory || spawnedResources.length >= 50) return;
     const needed = 10 - spawnedResources.length;
@@ -163,6 +306,7 @@ export const useGameState = () => {
     avatarPos,
     moveAvatar,
     villageZoom,
-    setVillageZoom
+    setVillageZoom,
+    interactWithBuilding
   };
 };

@@ -15,6 +15,7 @@ const BuildMenu = ({ resources, onBuild }) => {
 
   const blueprints = [
     { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '🏠', cost: { wood: starterHouseCost } },
+    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10 } },
     { id: 'apple-tree', type: 'apple-tree', name: 'APPLE TREE', icon: '🍎', cost: { wood: appleTreeCost } },
     { id: 'field-tiles', type: 'field-tiles', name: 'FIELD', icon: '🌾', cost: { wood: fieldTilesCost } },
     { id: 'well', type: 'well', name: 'WELL', icon: '⛲', cost: { wood: 20 } },
@@ -59,8 +60,12 @@ const BuildMenu = ({ resources, onBuild }) => {
               <div key={bp.id} className="bg-[#e8dfd5] p-3 border-2 border-[#8b7a6d] flex flex-col gap-3 hover:border-[#5d4a44] transition-colors shadow-sm">
                  <div className="flex justify-between items-center">
                    <div className="flex items-center gap-3">
-                     <span className="text-3xl">{bp.icon}</span>
-                     <span className="text-[#5d4a44] text-[10px]">{bp.name}</span>
+                     {bp.isImage ? (
+                       <img src={bp.icon} alt={bp.name} className="w-8 h-8 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
+                     ) : (
+                       <span className="text-3xl">{bp.icon}</span>
+                     )}
+                     <span className="#5d4a44 text-[10px]">{bp.name}</span>
                    </div>
                    <div className="flex flex-col items-end gap-1">
                      {Object.entries(bp.cost).map(([res, amount]) => (

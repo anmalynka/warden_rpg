@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useGameState } from './useGameState'
 import HUD from './HUD'
 import BuildMenu from './BuildMenu'
@@ -6,6 +6,7 @@ import MapComponent from './MapComponent'
 import LoginScreen from './LoginScreen'
 import RoleSelection from './RoleSelection'
 import BottomNav from './BottomNav'
+import TownView, { ISLAND_MAP, GRID_SIZE, TILE_SIZE, TILE_TYPES } from './TownView'
 import './App.css'
 
 function App() {
@@ -18,7 +19,30 @@ function App() {
   const [pendingBuilding, setPendingBuilding] = useState<{type: string, cost: any} | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [facing, setFacing] = useState('down');
+  const [isWalking, setIsWalking] = useState(false);
+  const [obstacles, setObstacles] = useState<{r: number, c: number}[]>([]);
   const clickTimeoutRef = useRef<any>(null);
+  const animationTimeoutRef = useRef<any>(null);
+
+  // Helper to validate position on the island grid
+  const isPositionValid = useCallback((x: number, y: number) => {
+    const offsetX = -(GRID_SIZE * TILE_SIZE) / 2;
+    const offsetY = -(GRID_SIZE * TILE_SIZE) / 2;
+    const c = Math.floor((x - offsetX) / TILE_SIZE);
+    const r = Math.floor((y - offsetY) / TILE_SIZE);
+    
+    if (c >= 0 && c < GRID_SIZE && r >= 0 && r < GRID_SIZE) {
+      const tileType = ISLAND_MAP[r][c];
+      // Only GRASS (3) and SAND (2) are walkable
+      const isTerrainWalkable = tileType === TILE_TYPES.GRASS || tileType === TILE_TYPES.SAND;
+      
+      // Check for obstacles (decorations)
+      const isObstacle = obstacles.some(ob => ob.r === r && ob.c === c);
+      
+      return isTerrainWalkable && !isObstacle;
+    }
+    return false;
+  }, [obstacles]);
   
   const getBuildingEmoji = (type: string) => {
     switch (type) {
@@ -50,7 +74,8 @@ function App() {
     spawnedResources, setSpawnedResources, collectResource,
     addWalkDistance, totalDistanceWalked,
     avatarPos, moveAvatar,
-    villageZoom, setVillageZoom
+    villageZoom, setVillageZoom,
+    interactWithBuilding
   } = useGameState();
 
   // Keyboard controls for avatar
@@ -61,15 +86,45 @@ function App() {
         setPendingBuilding(null);
       }
       if (activeTab !== 'village' || isPlacing) return;
-      const step = 20 / villageZoom;
-      if (e.key === 'ArrowUp') { moveAvatar(0, -step); setFacing('up'); }
-      if (e.key === 'ArrowDown') { moveAvatar(0, step); setFacing('down'); }
-      if (e.key === 'ArrowLeft') { moveAvatar(-step, 0); setFacing('left'); }
-      if (e.key === 'ArrowRight') { moveAvatar(step, 0); setFacing('right'); }
+      
+      const step = 8;
+      let nextX = avatarPos.x;
+      let nextY = avatarPos.y;
+      let newFacing = facing;
+      let moved = false;
+
+      if (e.key === 'ArrowUp') { nextY -= step; newFacing = 'up'; moved = true; }
+      else if (e.key === 'ArrowDown') { nextY += step; newFacing = 'down'; moved = true; }
+      else if (e.key === 'ArrowLeft') { nextX -= step; newFacing = 'left'; moved = true; }
+      else if (e.key === 'ArrowRight') { nextX += step; newFacing = 'right'; moved = true; }
+
+      if (moved) {
+        setFacing(newFacing as any);
+        if (isPositionValid(nextX, nextY)) {
+          moveAvatar(nextX - avatarPos.x, nextY - avatarPos.y);
+          setIsWalking(true);
+        } else {
+          // Play "intent" animation for 0.2s even if move is blocked
+          setIsWalking(true);
+          if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
+          animationTimeoutRef.current = setTimeout(() => setIsWalking(false), 200);
+        }
+      }
     };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        if (!animationTimeoutRef.current) setIsWalking(false);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, moveAvatar, isPlacing, villageZoom]);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [activeTab, moveAvatar, isPlacing, villageZoom, avatarPos, facing, isPositionValid]);
 
   const handleHarvest = () => {
     setResources((prev: any) => ({
@@ -103,120 +158,28 @@ function App() {
       {/* Main Content Areas */}
       <div className="w-full h-full">
         {activeTab === 'village' && (
-          <div 
-            className={`relative w-full h-full overflow-hidden bg-[#4caf50] ${isPlacing ? 'cursor-crosshair' : ''}`}
-            onClick={(e) => {
-              if (!isPlacing || !pendingBuilding) return;
-              
-              if (clickTimeoutRef.current) {
-                clearTimeout(clickTimeoutRef.current);
-                clickTimeoutRef.current = null;
-                return;
-              }
-
-              const rect = e.currentTarget.getBoundingClientRect();
-              // Calculate world coordinates by accounting for camera and zoom
-              const worldX = (e.clientX - rect.left - rect.width / 2) / villageZoom + avatarPos.x;
-              const worldY = (e.clientY - rect.top - rect.height / 2) / villageZoom + avatarPos.y;
-
-              clickTimeoutRef.current = setTimeout(() => {
-                addBuilding(pendingBuilding.type, pendingBuilding.cost, { x: worldX, y: worldY });
+          <div className="relative w-full h-full">
+            <TownView 
+              avatarPos={avatarPos}
+              villageZoom={villageZoom}
+              setVillageZoom={setVillageZoom}
+              buildings={buildings}
+              isPlacing={isPlacing}
+              pendingBuilding={pendingBuilding}
+              onBuild={(type: string, cost: any, pos: {x: number, y: number}) => {
+                addBuilding(type, cost, pos);
                 setIsPlacing(false);
                 setPendingBuilding(null);
-                clickTimeoutRef.current = null;
-              }, 250);
-            }}
-            onDoubleClick={() => {
-              if (isPlacing) {
-                if (clickTimeoutRef.current) {
-                  clearTimeout(clickTimeoutRef.current);
-                  clickTimeoutRef.current = null;
-                }
-                setIsPlacing(false);
-                setPendingBuilding(null);
-              }
-            }}
-            onMouseMove={(e) => {
-              if (isPlacing) {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const worldX = (e.clientX - rect.left - rect.width / 2) / villageZoom + avatarPos.x;
-                const worldY = (e.clientY - rect.top - rect.height / 2) / villageZoom + avatarPos.y;
-                setMousePos({ x: worldX, y: worldY });
-              }
-            }}
-          >
-            {/* Camera Container */}
-            <div 
-              className="absolute inset-0 transition-transform duration-300 ease-out"
-              style={{
-                transform: `scale(${villageZoom}) translate(${-avatarPos.x}px, ${-avatarPos.y}px)`,
-                transformOrigin: 'center center'
               }}
-            >
-              <div className="world-grid" style={{ width: '10000px', height: '10000px', transform: 'translate(-5000px, -5000px)' }} />
-              
-              {/* Village Elements Layer */}
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="relative w-0 h-0 flex items-center justify-center">
-                  {/* Buildings */}
-                  {buildings.filter(b => b.offset && b.offset.x !== undefined).map((building) => (
-                    <div 
-                      key={building.id}
-                      className="absolute flex flex-col items-center justify-center transition-all duration-500"
-                      style={{
-                        transform: `translate(${building.offset.x}px, ${building.offset.y}px)`,
-                        zIndex: 10
-                      }}
-                    >
-                      <div className="flex flex-col items-center">
-                        <span className="text-6xl drop-shadow-lg mb-2" role="img" aria-label={building.type}>
-                          {getBuildingEmoji(building.type)}
-                        </span>
-                        <div className="bg-[#3e2723] text-white font-['Press_Start_2P'] text-[6px] px-1 py-0.5 rounded-sm">
-                          {building.type.replace('-', ' ').toUpperCase()}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Ghost Building */}
-                  {isPlacing && pendingBuilding && (
-                    <div 
-                      className="absolute flex flex-col items-center justify-center opacity-50 pointer-events-none"
-                      style={{
-                        transform: `translate(${mousePos.x}px, ${mousePos.y}px)`,
-                        zIndex: 30
-                      }}
-                    >
-                      <span className="text-6xl drop-shadow-lg mb-2">
-                        {getBuildingEmoji(pendingBuilding.type)}
-                      </span>
-                      <div className="bg-[#3e2723] text-white font-['Press_Start_2P'] text-[6px] px-1 py-0.5 rounded-sm">
-                        PLACE {pendingBuilding.type.replace('-', ' ').toUpperCase()}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Avatar */}
-                  <div 
-                    className="absolute z-20 transition-all duration-100 ease-linear flex items-center justify-center"
-                    style={{
-                      transform: `translate(${avatarPos.x}px, ${avatarPos.y}px)`,
-                      width: '64px',
-                      height: '64px'
-                    }}
-                  >
-                    <div className="relative">
-                      {/* Shadow */}
-                      <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-3 bg-black/20 rounded-full blur-[2px]" />
-                      <span className="text-5xl drop-shadow-md select-none">
-                        {role?.icon || '🛡️'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+              role={role}
+              getBuildingEmoji={getBuildingEmoji}
+              mousePos={mousePos}
+              setMousePos={setMousePos}
+              facing={facing}
+              isWalking={isWalking}
+              onUpdateObstacles={setObstacles}
+              interactWithBuilding={interactWithBuilding}
+            />
 
             {/* Village UI Overlays */}
             <div className="fixed top-32 left-6 z-[2000] flex flex-col gap-2">
@@ -244,26 +207,62 @@ function App() {
             {/* Directional Controls (Bottom Right) */}
             <div className="fixed bottom-24 right-6 z-[2000] flex flex-col items-center gap-1 pointer-events-auto">
                <button 
-                 onClick={() => { moveAvatar(0, -20 / villageZoom); setFacing('up'); }}
+                 onMouseDown={() => { 
+                   if (isPositionValid(avatarPos.x, avatarPos.y - 16)) {
+                     moveAvatar(0, -16); setFacing('up'); setIsWalking(true);
+                   } else {
+                     setIsWalking(true);
+                     setTimeout(() => setIsWalking(false), 200);
+                   }
+                 }}
+                 onMouseUp={() => setIsWalking(false)}
+                 onMouseLeave={() => setIsWalking(false)}
                  className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
                >
                  ▲
                </button>
                <div className="flex gap-1">
                  <button 
-                   onClick={() => { moveAvatar(-20 / villageZoom, 0); setFacing('left'); }}
+                   onMouseDown={() => { 
+                     if (isPositionValid(avatarPos.x - 16, avatarPos.y)) {
+                       moveAvatar(-16, 0); setFacing('left'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onMouseUp={() => setIsWalking(false)}
+                   onMouseLeave={() => setIsWalking(false)}
                    className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
                  >
                    ◀
                  </button>
                  <button 
-                   onClick={() => { moveAvatar(0, 20 / villageZoom); setFacing('down'); }}
+                   onMouseDown={() => { 
+                     if (isPositionValid(avatarPos.x, avatarPos.y + 16)) {
+                       moveAvatar(0, 16); setFacing('down'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onMouseUp={() => setIsWalking(false)}
+                   onMouseLeave={() => setIsWalking(false)}
                    className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
                  >
                    ▼
                  </button>
                  <button 
-                   onClick={() => { moveAvatar(20 / villageZoom, 0); setFacing('right'); }}
+                   onMouseDown={() => { 
+                     if (isPositionValid(avatarPos.x + 16, avatarPos.y)) {
+                       moveAvatar(16, 0); setFacing('right'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onMouseUp={() => setIsWalking(false)}
+                   onMouseLeave={() => setIsWalking(false)}
                    className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
                  >
                    ▶
@@ -330,7 +329,7 @@ function App() {
       {(activeTab === 'village' || activeTab === 'warden') && !isTripping && (
         <BuildMenu 
           resources={resources} 
-          onBuild={(type, cost) => {
+          onBuild={(type: string, cost: any) => {
             setPendingBuilding({type, cost});
             setIsPlacing(true);
           }} 

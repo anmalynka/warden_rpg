@@ -36,8 +36,10 @@ const MapComponent = ({
   const [isScanning, setIsScanning] = useState(false);
   const [mapReady, setMapReady] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [isSearchingGPS, setIsSearchingGPS] = useState(true);
   const [failureMessage, setFailureMessage] = useState<string | null>(null);
   const [pendingCollections, setPendingCollections] = useState<any[]>([]); // Track 3min waits
+  const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
 
   const zoom = 14.5;
 
@@ -154,11 +156,19 @@ const MapComponent = ({
           updateGameStatePos(e.lngLat.lng, e.lngLat.lat, map, marker);
         });
 
+        map.on('mousemove', (e: any) => {
+          setMousePos(e.point);
+        });
+
         map.on('click', (e: any) => {
           // Since this is in an event listener, we need to check the current value of isPlacing
           // But since the listener is created once in initMap, we'll use a window variable 
           // or a ref for the latest isPlacing value to avoid closure issues.
           if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
+            if (window.pendingBuildingGlobal.type === 'garden-bed') {
+              // Garden beds are only for the village grid
+              return;
+            }
             onPlaceBuilding(
               window.pendingBuildingGlobal.type, 
               window.pendingBuildingGlobal.cost, 
@@ -173,6 +183,7 @@ const MapComponent = ({
     const handleGeoSuccess = (position: GeolocationPosition) => {
       if (isDraggingRef.current) return;
       setLocationError(null);
+      setIsSearchingGPS(false);
       const { longitude, latitude } = position.coords;
       if (!mapRef.current) {
         initMap(longitude, latitude);
@@ -183,21 +194,35 @@ const MapComponent = ({
 
     const handleGeoError = (error: GeolocationPositionError) => {
       console.warn("Geolocation Error:", error.message);
-      setLocationError("GPS signal lost. Using last known location.");
-      if (!mapRef.current) initMap(24.02, 49.84); // Fallback to Lviv
+      if (error.code === error.TIMEOUT) {
+        setLocationError("Searching for GPS... (Timeout)");
+      } else if (error.code === error.PERMISSION_DENIED) {
+        setLocationError("GPS permission denied.");
+      } else {
+        setLocationError("GPS signal lost. Falling back.");
+      }
+      
+      if (!mapRef.current) {
+        // Fallback to Lviv but keep searching
+        initMap(24.02, 49.84); 
+      }
     };
 
-    // Watch for real movement
-    watchId.current = navigator.geolocation.watchPosition(handleGeoSuccess, (err) => {
-      navigator.geolocation.getCurrentPosition(handleGeoSuccess, handleGeoError, {
-        enableHighAccuracy: false,
-        timeout: 5000
-      });
-    }, { 
+    // Watch for real movement - Use more permissive options for Android
+    const geoOptions = { 
       enableHighAccuracy: true, 
-      timeout: 10000,
+      timeout: 20000, // Longer timeout for initial lock
       maximumAge: 5000 
-    });
+    };
+
+    watchId.current = navigator.geolocation.watchPosition(handleGeoSuccess, (err) => {
+      console.warn("Watch error, trying again...", err.message);
+      // If high accuracy fails, try once without it to at least get a rough location
+      navigator.geolocation.getCurrentPosition(handleGeoSuccess, handleGeoError, {
+        ...geoOptions,
+        enableHighAccuracy: false
+      });
+    }, geoOptions);
 
     return () => { 
       if (watchId.current) navigator.geolocation.clearWatch(watchId.current);
@@ -511,7 +536,7 @@ const MapComponent = ({
   }, [mapReady, exploredTerritory, spawnedResources, isTripping]);
 
   return (
-    <div className="fixed inset-0 z-0 bg-slate-200">
+    <div className="fixed inset-0 z-0 bg-slate-200 pixel-art">
       <div className="absolute inset-0 z-[-1]" style={{ background: 'linear-gradient(to bottom, #9fb68d 0%, #cbd5e1 100%)' }} />
       <div ref={mapContainer} className="w-full h-full" style={{ imageRendering: 'pixelated' }} />
       <div className="absolute right-4 bottom-48 z-20 flex flex-col gap-2">
@@ -537,6 +562,17 @@ const MapComponent = ({
         </div>
       )}
       <div className="absolute top-24 left-4 z-10 pointer-events-none flex flex-col gap-2 font-['Press_Start_2P']">
+         {isSearchingGPS && (
+           <div className="bg-blue-600/90 text-white text-[6px] p-2 border-2 border-white animate-pulse shadow-lg flex items-center gap-2">
+             <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping"></div>
+             SEARCHING FOR GPS...
+           </div>
+         )}
+         {locationError && (
+           <div className="bg-red-600/90 text-white text-[6px] p-2 border-2 border-white shadow-lg">
+             {locationError}
+           </div>
+         )}
          <div className="parchment-panel p-2 text-[#5d4a44] text-[8px] shadow-lg flex flex-col gap-1">
            <div className="flex items-center gap-2">
              {isScanning && <div className="w-2 h-2 bg-[#e9d681] animate-ping rounded-full"></div>}
@@ -545,7 +581,7 @@ const MapComponent = ({
            {isTripping && (
              <div className="text-[6px] opacity-70 flex flex-col gap-1">
                <div>{nearbyResource ? `NEARBY: ${nearbyResource.type}` : 'NO RESOURCE NEARBY'}</div>
-               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - Number((totalDistanceWalked % 100).toFixed(0))}m TO 10🪙)</div>
+               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - Number((totalDistanceWalked % 100).toFixed(0))}m TO 10💎)</div>
              </div>
            )}
          </div>
@@ -615,6 +651,44 @@ const MapComponent = ({
            </div>
         </div>
       )}
+
+      {/* Ghost Building Placement Feedback */}
+      {isPlacing && pendingBuilding && mousePos && (
+        <div 
+          className="absolute pointer-events-none z-[9000] transition-transform duration-75"
+          style={{
+            left: mousePos.x,
+            top: mousePos.y,
+            transform: 'translate(-50%, -50%)',
+            opacity: 0.7
+          }}
+        >
+          <div className="flex flex-col items-center gap-2">
+            {pendingBuilding.type === 'garden-bed' ? (
+              <div className="bg-red-600/90 text-white text-[6px] p-1 font-['Press_Start_2P'] border-2 border-white whitespace-nowrap">
+                VILLAGE ONLY
+              </div>
+            ) : (
+              <div className="bg-green-600/90 text-white text-[6px] p-1 font-['Press_Start_2P'] border-2 border-white whitespace-nowrap animate-pulse">
+                CLICK TO PLACE
+              </div>
+            )}
+            
+            {pendingBuilding.type === 'garden-bed' ? (
+              <img 
+                src="/images/garden-bed-wheat-1.png" 
+                className="w-12 h-12 object-contain grayscale opacity-50" 
+                alt="Ghost Garden Bed"
+              />
+            ) : (
+              <span className="text-5xl drop-shadow-2xl">
+                {getBuildingEmoji(pendingBuilding.type)}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
         <button onClick={onToggleTrip} className={`px-8 py-4 font-['Press_Start_2P'] text-[10px] text-[#5d4a44] border-4 border-[#8b7a6d] active:translate-y-1 transition-all ${isTripping ? 'bg-[#d97e7e]' : 'bg-[#e9d681] shadow-[4px_4px_0_0_rgba(0,0,0,0.2)]'}`}>
           {isTripping ? 'EXIT TRIP' : 'START TRIP'}
