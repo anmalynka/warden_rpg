@@ -8,5 +8,8 @@ export default defineConfig({
   ],
   server: {
     port: 5180
+  },
+  preview: {
+    allowedHosts: ['warden-rpg.onrender.com']
   }
 })
