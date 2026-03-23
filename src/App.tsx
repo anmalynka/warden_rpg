@@ -182,16 +182,16 @@ function App() {
             />
 
             {/* Village UI Overlays */}
-            <div className="fixed top-32 left-6 z-[2000] flex flex-col gap-2">
+            <div className="fixed top-32 left-6 z-[2000] flex flex-col gap-4">
               <button 
                 onClick={() => setVillageZoom((prev: number) => Math.min(prev + 0.2, 3))}
-                className="w-10 h-10 bg-[#f4ece4] border-4 border-[#8b7a6d] text-[#5d4a44] font-bold flex items-center justify-center shadow-lg active:translate-y-1 pointer-events-auto"
+                className="w-12 h-12 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] font-['Press_Start_2P'] text-xl flex items-center justify-center shadow-[0_4px_0_0_#3e2723] active:translate-y-1 active:shadow-none pointer-events-auto transition-all"
               >
                 +
               </button>
               <button 
                 onClick={() => setVillageZoom((prev: number) => Math.max(prev - 0.2, 0.5))}
-                className="w-10 h-10 bg-[#f4ece4] border-4 border-[#8b7a6d] text-[#5d4a44] font-bold flex items-center justify-center shadow-lg active:translate-y-1 pointer-events-auto"
+                className="w-12 h-12 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] font-['Press_Start_2P'] text-xl flex items-center justify-center shadow-[0_4px_0_0_#3e2723] active:translate-y-1 active:shadow-none pointer-events-auto transition-all"
               >
                 -
               </button>
@@ -199,13 +199,13 @@ function App() {
 
             {/* Placement Mode Instructions */}
             {isPlacing && (
-              <div className="fixed top-32 left-1/2 -translate-x-1/2 z-[3000] bg-[#3e2723] text-white font-['Press_Start_2P'] text-[10px] px-4 py-2 border-2 border-white animate-pulse">
-                CLICK TO PLACE OR DOUBLE-CLICK/ESC TO CANCEL
+              <div className="fixed top-32 left-1/2 -translate-x-1/2 z-[3000] bg-[#3e2723] text-white font-['Press_Start_2P'] text-[10px] px-6 py-3 border-4 border-white shadow-2xl animate-pulse">
+                CLICK TO PLACE OR ESC TO CANCEL
               </div>
             )}
 
             {/* Directional Controls (Bottom Right) */}
-            <div className="fixed bottom-24 right-6 z-[2000] flex flex-col items-center gap-1 pointer-events-auto">
+            <div className="fixed bottom-24 right-6 z-[2000] flex flex-col items-center gap-2 pointer-events-auto">
                <button 
                  onMouseDown={() => { 
                    if (isPositionValid(avatarPos.x, avatarPos.y - 16)) {
@@ -217,11 +217,21 @@ function App() {
                  }}
                  onMouseUp={() => setIsWalking(false)}
                  onMouseLeave={() => setIsWalking(false)}
-                 className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
+                 onTouchStart={(e) => {
+                   e.preventDefault();
+                   if (isPositionValid(avatarPos.x, avatarPos.y - 16)) {
+                     moveAvatar(0, -16); setFacing('up'); setIsWalking(true);
+                   } else {
+                     setIsWalking(true);
+                     setTimeout(() => setIsWalking(false), 200);
+                   }
+                 }}
+                 onTouchEnd={() => setIsWalking(false)}
+                 className="w-14 h-14 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] flex items-center justify-center shadow-[0_6px_0_0_#3e2723] active:translate-y-1 active:shadow-none transition-all"
                >
-                 ▲
+                 <span className="text-2xl mt-[-4px]">▲</span>
                </button>
-               <div className="flex gap-1">
+               <div className="flex gap-2">
                  <button 
                    onMouseDown={() => { 
                      if (isPositionValid(avatarPos.x - 16, avatarPos.y)) {
@@ -233,9 +243,19 @@ function App() {
                    }}
                    onMouseUp={() => setIsWalking(false)}
                    onMouseLeave={() => setIsWalking(false)}
-                   className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
+                   onTouchStart={(e) => {
+                     e.preventDefault();
+                     if (isPositionValid(avatarPos.x - 16, avatarPos.y)) {
+                       moveAvatar(-16, 0); setFacing('left'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onTouchEnd={() => setIsWalking(false)}
+                   className="w-14 h-14 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] flex items-center justify-center shadow-[0_6px_0_0_#3e2723] active:translate-y-1 active:shadow-none transition-all"
                  >
-                   ◀
+                   <span className="text-2xl ml-[-4px]">◀</span>
                  </button>
                  <button 
                    onMouseDown={() => { 
@@ -248,9 +268,19 @@ function App() {
                    }}
                    onMouseUp={() => setIsWalking(false)}
                    onMouseLeave={() => setIsWalking(false)}
-                   className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
+                   onTouchStart={(e) => {
+                     e.preventDefault();
+                     if (isPositionValid(avatarPos.x, avatarPos.y + 16)) {
+                       moveAvatar(0, 16); setFacing('down'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onTouchEnd={() => setIsWalking(false)}
+                   className="w-14 h-14 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] flex items-center justify-center shadow-[0_6px_0_0_#3e2723] active:translate-y-1 active:shadow-none transition-all"
                  >
-                   ▼
+                   <span className="text-2xl mb-[-4px]">▼</span>
                  </button>
                  <button 
                    onMouseDown={() => { 
@@ -263,9 +293,19 @@ function App() {
                    }}
                    onMouseUp={() => setIsWalking(false)}
                    onMouseLeave={() => setIsWalking(false)}
-                   className="w-10 h-10 bg-[#8d6e63] border-4 border-[#3e2723] text-white flex items-center justify-center pixel-border active:translate-y-1"
+                   onTouchStart={(e) => {
+                     e.preventDefault();
+                     if (isPositionValid(avatarPos.x + 16, avatarPos.y)) {
+                       moveAvatar(16, 0); setFacing('right'); setIsWalking(true);
+                     } else {
+                       setIsWalking(true);
+                       setTimeout(() => setIsWalking(false), 200);
+                     }
+                   }}
+                   onTouchEnd={() => setIsWalking(false)}
+                   className="w-14 h-14 bg-[#f9f5f0] border-4 border-[#3e2723] text-[#3e2723] flex items-center justify-center shadow-[0_6px_0_0_#3e2723] active:translate-y-1 active:shadow-none transition-all"
                  >
-                   ▶
+                   <span className="text-2xl mr-[-4px]">▶</span>
                  </button>
                </div>
             </div>
@@ -326,7 +366,7 @@ function App() {
       </div>
 
       {/* Global Build Menu */}
-      {(activeTab === 'village' || activeTab === 'warden') && !isTripping && (
+      {activeTab === 'village' && !isTripping && (
         <BuildMenu 
           resources={resources} 
           onBuild={(type: string, cost: any) => {
@@ -344,7 +384,7 @@ function App() {
         <div className="fixed bottom-24 left-6 z-[2000]">
           <button 
             onClick={handleHarvest}
-            className="bg-[#8d6e63] border-4 border-[#3e2723] text-white p-2 font-['Press_Start_2P'] text-[8px] hover:bg-[#a1887f] active:translate-y-1 pixel-border shadow-xl"
+            className="bg-[#8d6e63] border-4 border-[#3e2723] text-white px-4 py-3 font-['Press_Start_2P'] text-[10px] hover:bg-[#a1887f] active:translate-y-1 active:shadow-none shadow-[0_4px_0_0_#3e2723] transition-all"
           >
             HARVEST
           </button>

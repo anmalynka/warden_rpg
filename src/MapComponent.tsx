@@ -44,10 +44,10 @@ const MapComponent = ({
   const zoom = 14.5;
 
   const assetMap: any = {
-    wood: '/images/Tree1.png',
-    metal: '/images/Bush_red_flowers1.png',
-    pebbles: '/images/Broken_tree1.png',
-    coins: '🪙'
+    wood: '/images/tools-wood.png',
+    metal: '/images/tools-iron.png',
+    pebbles: '/images/tools-crystals.png',
+    coins: '/images/tools-coins.png'
   };
 
   // Helper to get time remaining for pending collections
@@ -130,7 +130,6 @@ const MapComponent = ({
         const el = document.createElement('div');
         el.className = 'player-marker-pin';
         el.style.fontSize = '40px';
-        el.style.filter = 'drop-shadow(0 0 10px rgba(170, 59, 255, 0.5))';
         el.innerHTML = '🛡️';
         
         const marker = new maplibregl.Marker({ element: el, draggable: true })
@@ -295,39 +294,10 @@ const MapComponent = ({
     }
   };
 
-  // Render buildings on map
+  // Render buildings on map (REMOVED)
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-
-    // Filter buildings that have lat/lng
-    const mapBuildings = buildings.filter((b: any) => b.offset && b.offset.lat !== undefined);
-
-    // Remove old building markers
-    Object.keys(buildingMarkers.current).forEach(id => {
-      if (!mapBuildings.find((b: any) => b.id === id)) {
-        buildingMarkers.current[id].remove();
-        delete buildingMarkers.current[id];
-      }
-    });
-
-    // Add/Update markers
-    mapBuildings.forEach((b: any) => {
-      if (!buildingMarkers.current[b.id]) {
-        const el = document.createElement('div');
-        el.className = 'building-marker';
-        el.style.fontSize = '32px';
-        el.style.cursor = 'pointer';
-        el.innerHTML = getBuildingEmoji(b.type);
-        
-        const marker = new maplibregl.Marker({ element: el })
-          .setLngLat([b.offset.lng, b.offset.lat])
-          .addTo(map);
-        
-        buildingMarkers.current[b.id] = marker;
-      }
-    });
-  }, [buildings, mapReady]);
+    // Building markers removed as per request
+  }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
@@ -681,7 +651,7 @@ const MapComponent = ({
                 alt="Ghost Garden Bed"
               />
             ) : (
-              <span className="text-5xl drop-shadow-2xl">
+              <span className="text-5xl">
                 {getBuildingEmoji(pendingBuilding.type)}
               </span>
             )}

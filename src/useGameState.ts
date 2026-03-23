@@ -17,7 +17,7 @@ export const useGameState = () => {
     return saved ? JSON.parse(saved) : [];
   });
   const [totalDistanceWalked, setTotalDistanceWalked] = useState(0);
-  const [avatarPos, setAvatarPos] = useState({ x: 0, y: 0 }); // Center of the grid
+  const [avatarPos, setAvatarPos] = useState({ x: 8, y: 8 }); // Offset from center to avoid obstacles
   const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
 
   // 2. ALL USECALLBACK AFTER USESTATE
@@ -45,10 +45,10 @@ export const useGameState = () => {
   const spawnResourcesInArea = useCallback((centerPos: [number, number], radiusMeters: number, count: number) => {
     const types = ['wood', 'metal', 'pebbles', 'coins'];
     const assetMap: any = {
-      wood: '/images/Tree1.png',
-      metal: '/images/Bush_red_flowers1.png',
-      pebbles: '/images/Broken_tree1.png',
-      coins: '🪙'
+      wood: '/images/tools-wood.png',
+      metal: '/images/tools-iron.png',
+      pebbles: '/images/tools-crystals.png',
+      coins: '/images/tools-coins.png'
     };
 
     const newBatch: any[] = [];
@@ -174,8 +174,7 @@ export const useGameState = () => {
           }
           break;
         case 'remove':
-          if (gs.currentLevel === 1 && !gs.produceType) return null;
-          break;
+          return null;
       }
       return b;
     }).filter(Boolean));
