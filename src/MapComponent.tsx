@@ -19,29 +19,29 @@ const MapComponent = ({
   pendingBuilding = null,
   onPlaceBuilding,
   buildings = []
-}) => {
+}: any) => {
 
-  const mapContainer = useRef(null);
-  const mapRef = useRef(null);
-  const markerRef = useRef(null);
-  const resourceMarkers = useRef({});
-  const buildingMarkers = useRef({});
-  const prevPos = useRef(null);
-  const lastFetchRef = useRef(0);
-  const watchId = useRef(null);
-  const isDraggingRef = useRef(false);
+  const mapContainer = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const resourceMarkers = useRef<any>({});
+  const buildingMarkers = useRef<any>({});
+  const prevPos = useRef<any>(null);
+  const lastFetchRef = useRef<any>(0);
+  const watchId = useRef<any>(null);
+  const isDraggingRef = useRef<any>(false);
   
-  const [playerPos, setPlayerPos] = useState([0, 0]);
-  const [nearbyResource, setNearbyResource] = useState(null);
+  const [playerPos, setPlayerPos] = useState<[number, number]>([0, 0]);
+  const [nearbyResource, setNearbyResource] = useState<any>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [mapReady, setMapReady] = useState(false);
-  const [locationError, setLocationError] = useState(null);
-  const [failureMessage, setFailureMessage] = useState(null);
-  const [pendingCollections, setPendingCollections] = useState([]); // Track 3min waits
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  const [pendingCollections, setPendingCollections] = useState<any[]>([]); // Track 3min waits
 
   const zoom = 14.5;
 
-  const assetMap = {
+  const assetMap: any = {
     wood: '/images/Tree1.png',
     metal: '/images/Bush_red_flowers1.png',
     pebbles: '/images/Broken_tree1.png',
@@ -55,13 +55,14 @@ const MapComponent = ({
     return () => clearInterval(timer);
   }, []);
 
-  const getFogData = (center, territory) => {
+  const getFogData = (center: any, territory: any) => {
     const world = turf.polygon([[[-180, -90], [180, -90], [180, 90], [-180, 90], [-180, -90]]]);
     const playerCircle = turf.circle(center, 0.005, { steps: 32, units: 'kilometers' });
-    let visibleArea = playerCircle;
+    let visibleArea: any = playerCircle;
     if (territory) { 
       try { 
-        visibleArea = turf.union(turf.featureCollection([visibleArea, territory])); 
+        const unionResult = turf.union(turf.featureCollection([visibleArea, territory]));
+        if (unionResult) visibleArea = unionResult;
       } catch (e) {
         console.warn("Fog Union error", e);
       } 
@@ -73,8 +74,8 @@ const MapComponent = ({
     if (!mapContainer.current || mapRef.current) return;
 
     // Helper to update everything when position changes
-    const updateGameStatePos = (newLng, newLat, map, marker) => {
-      const currentPos = [newLng, newLat];
+    const updateGameStatePos = (newLng: number, newLat: number, map: any, marker: any) => {
+      const currentPos: [number, number] = [newLng, newLat];
       
       // Calculate real distance for coin rewards if in TRIP mode
       if (prevPos.current && window.isTrippingGlobal) {
@@ -98,7 +99,7 @@ const MapComponent = ({
       if (map) {
         const bearing = prevPos.current ? turf.bearing(turf.point(prevPos.current), turf.point(currentPos)) : 0;
         if (window.isTrippingGlobal) {
-          map.easeTo({ center: currentPos, bearing, duration: 800, easing: (t) => t });
+          map.easeTo({ center: currentPos, bearing, duration: 800, easing: (t: any) => t });
         } else {
           map.easeTo({ center: currentPos, duration: 500 });
         }
@@ -106,12 +107,12 @@ const MapComponent = ({
       prevPos.current = currentPos;
     };
 
-    const initMap = (longitude, latitude) => {
-      const center = [longitude, latitude];
+    const initMap = (longitude: number, latitude: number) => {
+      const center: [number, number] = [longitude, latitude];
       const map = new maplibregl.Map({
-        container: mapContainer.current,
+        container: mapContainer.current as HTMLDivElement,
         style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-        center, zoom, attributionControl: false, maxZoom: 21, pitchWithRotate: true, antialias: true
+        center, zoom, attributionControl: false, maxZoom: 21, pitchWithRotate: true
       });
       mapRef.current = map;
 
@@ -119,8 +120,8 @@ const MapComponent = ({
         setMapReady(true);
         map.resize();
         
-        map.addSource('territory', { type: 'geojson', data: exploredTerritory || { type: 'FeatureCollection', features: [] } });
-        map.addSource('fog-of-war', { type: 'geojson', data: getFogData(center, exploredTerritory) });
+        map.addSource('territory', { type: 'geojson', data: (exploredTerritory || { type: 'FeatureCollection', features: [] }) as any });
+        map.addSource('fog-of-war', { type: 'geojson', data: getFogData(center, exploredTerritory) as any });
         map.addLayer({ id: 'territory-layer', type: 'fill', source: 'territory', paint: { 'fill-color': '#9fb68d', 'fill-opacity': 0.3 }});
         map.addLayer({ id: 'fog-layer', type: 'fill', source: 'fog-of-war', paint: { 'fill-color': '#cbd5e1', 'fill-opacity': 0.85 }});
 
@@ -136,7 +137,7 @@ const MapComponent = ({
         markerRef.current = marker;
 
         // Sync initial state
-        updateGameStatePos(longitude, latitude, map, marker, true);
+        updateGameStatePos(longitude, latitude, map, marker);
 
         // Manual movement listeners
         marker.on('dragstart', () => {
@@ -149,11 +150,11 @@ const MapComponent = ({
           updateGameStatePos(pos.lng, pos.lat, map, marker);
         });
 
-        map.on('dblclick', (e) => {
+        map.on('dblclick', (e: any) => {
           updateGameStatePos(e.lngLat.lng, e.lngLat.lat, map, marker);
         });
 
-        map.on('click', (e) => {
+        map.on('click', (e: any) => {
           // Since this is in an event listener, we need to check the current value of isPlacing
           // But since the listener is created once in initMap, we'll use a window variable 
           // or a ref for the latest isPlacing value to avoid closure issues.
@@ -169,7 +170,7 @@ const MapComponent = ({
       });
     };
 
-    const handleGeoSuccess = (position) => {
+    const handleGeoSuccess = (position: GeolocationPosition) => {
       if (isDraggingRef.current) return;
       setLocationError(null);
       const { longitude, latitude } = position.coords;
@@ -180,7 +181,7 @@ const MapComponent = ({
       }
     };
 
-    const handleGeoError = (error) => {
+    const handleGeoError = (error: GeolocationPositionError) => {
       console.warn("Geolocation Error:", error.message);
       setLocationError("GPS signal lost. Using last known location.");
       if (!mapRef.current) initMap(24.02, 49.84); // Fallback to Lviv
@@ -212,16 +213,16 @@ const MapComponent = ({
     if (!map || !mapReady || !map.isStyleLoaded()) return;
     
     // Get road layers to make them prominent
-    const roadLayers = map.getStyle().layers.filter(l => 
+    const roadLayers = map.getStyle().layers.filter((l: any) => 
       l.id.includes('road') || l.id.includes('highway') || l.id.includes('bridge') || l.id.includes('tunnel')
     );
 
     if (isTripping) {
       const layers = map.getStyle().layers;
-      layers.forEach(l => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'none'); });
+      layers.forEach((l: any) => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'none'); });
       
       // Make roads bright and thick for navigation in trip mode
-      roadLayers.forEach(l => {
+      roadLayers.forEach((l: any) => {
         if (l.type === 'line') {
           map.setPaintProperty(l.id, 'line-color', '#ffffff');
           map.setPaintProperty(l.id, 'line-width', [
@@ -236,10 +237,10 @@ const MapComponent = ({
       map.easeTo({ pitch: 85, zoom: 20.5, duration: 1500 }); // REDUCED MAX ZOOM
     } else {
       const layers = map.getStyle().layers;
-      layers.forEach(l => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'visible'); });
+      layers.forEach((l: any) => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'visible'); });
       
       // Reset roads to standard subtle style
-      roadLayers.forEach(l => {
+      roadLayers.forEach((l: any) => {
         if (l.type === 'line') {
           map.setPaintProperty(l.id, 'line-color', '#ebebeb');
           map.setPaintProperty(l.id, 'line-width', [
@@ -255,7 +256,7 @@ const MapComponent = ({
     }
   }, [isTripping, mapReady]);
 
-  const getBuildingEmoji = (type) => {
+  const getBuildingEmoji = (type: string) => {
     switch (type) {
       case 'heart-tree': return '🌳';
       case 'starter-house': return '🏠';
@@ -275,18 +276,18 @@ const MapComponent = ({
     if (!map || !mapReady) return;
 
     // Filter buildings that have lat/lng
-    const mapBuildings = buildings.filter(b => b.offset && b.offset.lat !== undefined);
+    const mapBuildings = buildings.filter((b: any) => b.offset && b.offset.lat !== undefined);
 
     // Remove old building markers
     Object.keys(buildingMarkers.current).forEach(id => {
-      if (!mapBuildings.find(b => b.id === id)) {
+      if (!mapBuildings.find((b: any) => b.id === id)) {
         buildingMarkers.current[id].remove();
         delete buildingMarkers.current[id];
       }
     });
 
     // Add/Update markers
-    mapBuildings.forEach(b => {
+    mapBuildings.forEach((b: any) => {
       if (!buildingMarkers.current[b.id]) {
         const el = document.createElement('div');
         el.className = 'building-marker';
@@ -321,7 +322,7 @@ const MapComponent = ({
     }
   };
 
-  const handleCancelCollection = useCallback((id, reason = "Cancelled") => {
+  const handleCancelCollection = useCallback((id: string, reason = "Cancelled") => {
     setPendingCollections(prev => prev.filter(p => p.id !== id));
     setFailureMessage(`${reason.toUpperCase()}!`);
     setTimeout(() => setFailureMessage(null), 3000);
@@ -340,7 +341,7 @@ const MapComponent = ({
       }]);
       
       // Hide resource from map immediately
-      onSetSpawnedResources(prev => prev.filter(r => r.id !== id));
+      onSetSpawnedResources((prev: any[]) => prev.filter(r => r.id !== id));
       setNearbyResource(null);
     }
   };
@@ -361,7 +362,7 @@ const MapComponent = ({
       
       setPendingCollections(prev => {
         let needsUpdate = false;
-        const remaining = [];
+        const remaining: any[] = [];
         
         prev.forEach(p => {
           // Check completion
@@ -400,7 +401,7 @@ const MapComponent = ({
     
     console.log("Checking proximity for", spawnedResources.length, "resources at", playerPos);
     
-    const closest = spawnedResources.find(res => {
+    const closest = spawnedResources.find((res: any) => {
       const dist = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'meters' });
       if (dist < 20) console.log(`Resource ${res.id} is ${dist.toFixed(2)}m away`);
       return dist < 5;
@@ -415,16 +416,16 @@ const MapComponent = ({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    const currentIds = new Set(spawnedResources.map(r => r.id));
+    const currentIds = new Set(spawnedResources.map((r: any) => r.id));
     
     // Filter out coins if not in TRIP mode
     const visibleResources = isTripping 
       ? spawnedResources 
-      : spawnedResources.filter(r => r.type !== 'coins');
+      : spawnedResources.filter((r: any) => r.type !== 'coins');
 
     // Remove markers no longer in visibleResources
     Object.keys(resourceMarkers.current).forEach(id => { 
-      const res = spawnedResources.find(r => r.id === id);
+      const res = spawnedResources.find((r: any) => r.id === id);
       if (!res || (!isTripping && res.type === 'coins')) {
         resourceMarkers.current[id].remove(); 
         delete resourceMarkers.current[id]; 
@@ -432,7 +433,7 @@ const MapComponent = ({
     });
 
     // Add or update markers based on visibility and TRIP mode
-    visibleResources.forEach(res => {
+    visibleResources.forEach((res: any) => {
       const inExplored = exploredTerritory ? turf.booleanPointInPolygon(turf.point([res.lng, res.lat]), exploredTerritory) : false;
       const distToPlayer = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'kilometers' });
       const isVisible = inExplored || distToPlayer < 0.1;
@@ -478,7 +479,7 @@ const MapComponent = ({
         } else {
           // Update existing marker icon if trip mode changed without re-mounting
           const marker = resourceMarkers.current[res.id];
-          const inner = marker.getElement().firstChild;
+          const inner = marker.getElement().firstChild as HTMLElement;
           if (isTripping) {
              marker.getElement().style.width = '48px'; marker.getElement().style.height = '48px';
              if (res.icon.includes('/')) {
@@ -505,8 +506,8 @@ const MapComponent = ({
       }
     });
 
-    if (map.getSource('territory')) map.getSource('territory').setData(exploredTerritory || { type: 'FeatureCollection', features: [] });
-    if (map.getSource('fog-of-war')) map.getSource('fog-of-war').setData(getFogData(playerPos, exploredTerritory));
+    if (map.getSource('territory')) (map.getSource('territory') as any).setData(exploredTerritory || { type: 'FeatureCollection', features: [] });
+    if (map.getSource('fog-of-war')) (map.getSource('fog-of-war') as any).setData(getFogData(playerPos, exploredTerritory));
   }, [mapReady, exploredTerritory, spawnedResources, isTripping]);
 
   return (
@@ -544,7 +545,7 @@ const MapComponent = ({
            {isTripping && (
              <div className="text-[6px] opacity-70 flex flex-col gap-1">
                <div>{nearbyResource ? `NEARBY: ${nearbyResource.type}` : 'NO RESOURCE NEARBY'}</div>
-               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - (totalDistanceWalked % 100).toFixed(0)}m TO 10🪙)</div>
+               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - Number((totalDistanceWalked % 100).toFixed(0))}m TO 10🪙)</div>
              </div>
            )}
          </div>

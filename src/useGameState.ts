@@ -20,37 +20,37 @@ export const useGameState = () => {
   const [villageZoom, setVillageZoom] = useState(1);
 
   // 2. ALL USECALLBACK AFTER USESTATE
-  const moveAvatar = useCallback((dx, dy) => {
-    setAvatarPos(prev => ({
+  const moveAvatar = useCallback((dx: number, dy: number) => {
+    setAvatarPos((prev: any) => ({
       x: prev.x + dx,
       y: prev.y + dy
     }));
   }, []);
 
-  const addWalkDistance = useCallback((meters) => {
-    setTotalDistanceWalked(prev => {
+  const addWalkDistance = useCallback((meters: number) => {
+    setTotalDistanceWalked((prev: number) => {
       const newTotal = prev + meters;
       const oldMilestone = Math.floor(prev / 100);
       const newMilestone = Math.floor(newTotal / 100);
       
       if (newMilestone > oldMilestone) {
         const reward = (newMilestone - oldMilestone) * 10;
-        setResources(r => ({ ...r, coins: (r.coins || 0) + reward }));
+        setResources((r: any) => ({ ...r, coins: (r.coins || 0) + reward }));
       }
       return newTotal;
     });
   }, []);
 
-  const spawnResourcesInArea = useCallback((centerPos, radiusMeters, count) => {
+  const spawnResourcesInArea = useCallback((centerPos: [number, number], radiusMeters: number, count: number) => {
     const types = ['wood', 'metal', 'pebbles', 'coins'];
-    const assetMap = {
+    const assetMap: any = {
       wood: '/images/Tree1.png',
       metal: '/images/Bush_red_flowers1.png',
       pebbles: '/images/Broken_tree1.png',
       coins: '🪙'
     };
 
-    const newBatch = [];
+    const newBatch: any[] = [];
     let attempts = 0;
     const centerPoint = turf.point(centerPos);
 
@@ -61,7 +61,7 @@ export const useGameState = () => {
       const destination = turf.destination(centerPoint, dist, bearing);
       const [lng, lat] = destination.geometry.coordinates;
 
-      const isDuplicate = [...spawnedResources, ...newBatch, ...lastSpawnLocations].some(r => 
+      const isDuplicate = [...spawnedResources, ...newBatch, ...lastSpawnLocations].some((r: any) => 
         turf.distance(destination, turf.point([r.lng, r.lat]), { units: 'meters' }) < 20
       );
 
@@ -75,13 +75,13 @@ export const useGameState = () => {
     }
 
     if (newBatch.length > 0) {
-      setSpawnedResources(prev => [...prev, ...newBatch]);
-      setLastSpawnLocations(prev => [...newBatch.map(b => ({lat: b.lat, lng: b.lng})), ...prev].slice(0, 40));
+      setSpawnedResources((prev: any[]) => [...prev, ...newBatch]);
+      setLastSpawnLocations((prev: any[]) => [...newBatch.map(b => ({lat: b.lat, lng: b.lng})), ...prev].slice(0, 40));
     }
   }, [spawnedResources, lastSpawnLocations]);
 
-  const addTerritory = useCallback((newPolygon, playerPos) => {
-    setExploredTerritory(prev => {
+  const addTerritory = useCallback((newPolygon: any, playerPos: [number, number]) => {
+    setExploredTerritory((prev: any) => {
       if (!prev) {
         if (playerPos) spawnResourcesInArea(playerPos, 200, 5);
         return newPolygon;
@@ -100,21 +100,21 @@ export const useGameState = () => {
     });
   }, [spawnResourcesInArea]);
 
-  const collectResource = useCallback((id, type, amount = 1) => {
-    setSpawnedResources(prev => prev.filter(r => r.id !== id));
-    setResources(prev => ({
+  const collectResource = useCallback((id: string, type: string, amount = 1) => {
+    setSpawnedResources((prev: any[]) => prev.filter(r => r.id !== id));
+    setResources((prev: any) => ({
       ...prev,
       [type]: (prev[type] || 0) + amount
     }));
   }, []);
 
-  const addBuilding = useCallback((type, cost, position = null) => {
+  const addBuilding = useCallback((type: string, cost: any, position: any = null) => {
     // We need to check resources and update them together
-    setResources(prev => {
-      const canAfford = Object.entries(cost).every(([res, amount]) => (prev[res] || 0) >= amount);
+    setResources((prev: any) => {
+      const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (prev[res] || 0) >= amount);
       if (canAfford) {
         const nextResources = { ...prev };
-        Object.entries(cost).forEach(([res, amount]) => {
+        Object.entries(cost).forEach(([res, amount]: [string, any]) => {
           nextResources[res] -= amount;
         });
         return nextResources;
@@ -122,9 +122,9 @@ export const useGameState = () => {
       return prev;
     });
 
-    setBuildings(prevBuildings => {
+    setBuildings((prevBuildings: any[]) => {
       // Re-check resources using the current state in the closure
-      const canAfford = Object.entries(cost).every(([res, amount]) => (resources[res] || 0) >= amount);
+      const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (resources[res] || 0) >= amount);
       
       if (canAfford) {
         const newId = `building-${Date.now()}`;

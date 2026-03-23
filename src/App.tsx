@@ -72,7 +72,7 @@ function App() {
   }, [activeTab, moveAvatar, isPlacing, villageZoom]);
 
   const handleHarvest = () => {
-    setResources(prev => ({
+    setResources((prev: any) => ({
       ...prev,
       wood: prev.wood + 5,
       coins: prev.coins + 10
@@ -221,13 +221,13 @@ function App() {
             {/* Village UI Overlays */}
             <div className="fixed top-32 left-6 z-[2000] flex flex-col gap-2">
               <button 
-                onClick={() => setVillageZoom(prev => Math.min(prev + 0.2, 3))}
+                onClick={() => setVillageZoom((prev: number) => Math.min(prev + 0.2, 3))}
                 className="w-10 h-10 bg-[#f4ece4] border-4 border-[#8b7a6d] text-[#5d4a44] font-bold flex items-center justify-center shadow-lg active:translate-y-1 pointer-events-auto"
               >
                 +
               </button>
               <button 
-                onClick={() => setVillageZoom(prev => Math.max(prev - 0.2, 0.5))}
+                onClick={() => setVillageZoom((prev: number) => Math.max(prev - 0.2, 0.5))}
                 className="w-10 h-10 bg-[#f4ece4] border-4 border-[#8b7a6d] text-[#5d4a44] font-bold flex items-center justify-center shadow-lg active:translate-y-1 pointer-events-auto"
               >
                 -
@@ -284,7 +284,6 @@ function App() {
             }}
           >
             <MapComponent 
-              fullScreen={true} 
               isTripping={isTripping} 
               onToggleTrip={handleToggleTrip}
               exploredTerritory={exploredTerritory}
@@ -298,7 +297,7 @@ function App() {
               totalDistanceWalked={totalDistanceWalked}
               isPlacing={isPlacing}
               pendingBuilding={pendingBuilding}
-              onPlaceBuilding={(type, cost, lat, lng) => {
+              onPlaceBuilding={(type: string, cost: any, lat: number, lng: number) => {
                 addBuilding(type, cost, { lat, lng });
                 setIsPlacing(false);
                 setPendingBuilding(null);
