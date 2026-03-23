@@ -523,11 +523,11 @@ const MapComponent = ({
       </div>
       {isTripping && (
         <div className="absolute top-4 left-0 right-0 px-4 z-[5000] pointer-events-none">
-           <div className="bg-[#f4ece4] border-b-4 border-[#8b7a6d] border-r-4 p-2 rounded-sm flex justify-around shadow-xl max-w-sm mx-auto pointer-events-auto">
-              <ResourceItem icon="🪵" value={resources?.wood || 0} label="Wood" />
-              <ResourceItem icon="🔩" value={resources?.metal || 0} label="Metal" />
-              <ResourceItem icon="💎" value={resources?.pebbles || 0} label="Pebbles" />
-              <ResourceItem icon="🪙" value={resources?.coins || 0} label="Coins" />
+           <div className="bg-[#f9f5f0] p-2 rounded-full flex justify-around shadow-xl max-w-sm mx-auto pointer-events-auto">
+              <ResourceItem iconUrl="/images/tools-wood.png" value={resources?.wood || 0} label="Wood" />
+              <ResourceItem iconUrl="/images/tools-iron.png" value={resources?.metal || 0} label="Metal" />
+              <ResourceItem iconUrl="/images/tools-crystals.png" value={resources?.pebbles || 0} label="Pebbles" />
+              <ResourceItem iconUrl="/images/tools-coins.png" value={resources?.coins || 0} label="Coins" />
            </div>
         </div>
       )}

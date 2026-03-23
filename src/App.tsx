@@ -75,7 +75,8 @@ function App() {
     addWalkDistance, totalDistanceWalked,
     avatarPos, moveAvatar,
     villageZoom, setVillageZoom,
-    interactWithBuilding
+    interactWithBuilding,
+    resetGame
   } = useGameState();
 
   // Keyboard controls for avatar
@@ -353,6 +354,17 @@ function App() {
                 <div className="flex flex-col gap-4">
                    <div className="text-white text-[10px]">USER: {user}</div>
                    <div className="text-white text-[10px]">ROLE: {role?.name}</div>
+                   <button 
+                     onClick={() => {
+                        if (window.confirm('Restart game from new village? All progress will be lost.')) {
+                          resetGame();
+                          setActiveTab('village');
+                        }
+                     }}
+                     className="mt-2 bg-orange-600 text-white p-4 text-[10px] border-b-4 border-r-4 border-black active:translate-y-1"
+                   >
+                     RESTART GAME
+                   </button>
                    <button 
                      onClick={() => setAppState('login')}
                      className="mt-6 bg-red-800 text-white p-4 text-[10px] border-b-4 border-r-4 border-black active:translate-y-1"

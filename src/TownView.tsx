@@ -188,7 +188,7 @@ const TownView = ({
         const distR = Math.abs(playerGrid.r - hoverTile.r);
 
         if (distC <= 1 && distR <= 1) {
-           if (clickedBuilding.type === 'garden-bed') {
+           if (clickedBuilding.type === 'garden-bed' || clickedBuilding.type === 'garden-tree') {
              const gs = clickedBuilding.growthState;
              if (gs.currentLevel === 1 && !gs.produceType) {
                setSelectedBedForMenu(clickedBuilding.id);
@@ -271,8 +271,8 @@ const TownView = ({
                   style={{
                     width: TILE_SIZE,
                     height: TILE_SIZE,
-                    backgroundColor: isWater ? '#1e88e5' : isSand ? '#d9c58d' : isGrass ? '#4caf50' : '#050a0f',
-                    backgroundImage: isGrass ? 'url("/images/grass texture.png")' : 'none',
+                    backgroundColor: isWater ? '#1e88e5' : isSand ? '#d9c58d' : isGrass ? '#558b2f' : '#050a0f',
+                    backgroundImage: isGrass ? 'url("/images/grass.png")' : 'none',
                     backgroundSize: '32px 32px', // Match TILE_SIZE for seamlessness
                     border: 'none',
                     outline: 'none',
@@ -326,27 +326,30 @@ const TownView = ({
               }}
             >
               <div style={{ transform: 'translate(-50%, -85%)' }} className="flex flex-col items-center">
-                {building.type === 'garden-bed' && building.growthState ? (
+                {(building.type === 'garden-bed' || building.type === 'garden-tree') && building.growthState ? (
                   <div className="relative">
                      <img 
-                       src={`/images/garden-bed-${building.growthState.produceType || 'wheat'}-${building.growthState.currentLevel}.png`}
-                       alt="Garden Bed"
-                       className={`w-10 h-10 object-contain ${building.growthState.isDead ? 'grayscale brightness-75' : ''}`}
+                       src={building.type === 'garden-tree' 
+                         ? `/images/garden-${building.growthState.produceType || 'apple'}-${building.growthState.currentLevel}.png`
+                         : `/images/garden-bed-${building.growthState.produceType || 'wheat'}-${building.growthState.currentLevel}.png`
+                       }
+                       alt={building.type}
+                       className={`w-10 h-10 object-contain ${building.growthState.currentLevel === 5 ? 'grayscale brightness-75' : ''}`}
                        style={{ imageRendering: 'pixelated' }}
                      />
                      
-                     {/* Interaction Icons Above Bed */}
-                     {!building.growthState.isDead && building.growthState.currentLevel === 3 && (
+                     {/* Interaction Icons Above Bed/Tree */}
+                     {building.growthState.currentLevel === 3 && (
                        <div className="absolute top-0 right-0 animate-bounce">
                           <img src="/images/garden-watering-can.png" className="w-[12px] h-[12px] object-contain" alt="Needs Water" />
                        </div>
                      )}
-                     {!building.growthState.isDead && building.growthState.currentLevel === 4 && (
+                     {building.growthState.currentLevel === 4 && (
                        <div className="absolute top-0 right-0 animate-pulse">
                           <img src="/images/garden-pick.png" className="w-[12px] h-[12px] object-contain" alt="Ready to Harvest" />
                        </div>
                      )}
-                     {building.growthState.isDead && (
+                     {building.growthState.currentLevel === 5 && (
                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
                           <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Clear Dead Plant" />
                           <div className="text-[6px] bg-red-500 text-white px-1">DEAD</div>
@@ -473,10 +476,10 @@ const TownView = ({
                       interactWithBuilding(selectedBedForMenu, 'select-produce', { produceType: p.type });
                       setSelectedBedForMenu(null);
                     }}
-                    className="flex items-center gap-4 bg-[#8d6e63] border-4 border-[#3e2723] p-4 hover:bg-[#a1887f] active:translate-y-1 transition-all text-left"
+                    className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
                   >
                     <img src={p.icon} alt={p.name} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
-                    <span className="text-white text-[10px]">{p.name}</span>
+                    <span className="text-[#3e2723] text-[10px]">{p.name}</span>
                   </button>
                 ))}
 
@@ -486,10 +489,10 @@ const TownView = ({
                     interactWithBuilding(selectedBedForMenu, 'remove');
                     setSelectedBedForMenu(null);
                   }}
-                  className="flex items-center gap-4 bg-red-800 border-4 border-[#3e2723] p-4 hover:bg-red-700 active:translate-y-1 transition-all text-left"
+                  className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
                 >
                   <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
-                  <span className="text-white text-[10px]">BIN (REMOVE)</span>
+                  <span className="text-[#3e2723] text-[10px]">BIN (REMOVE)</span>
                 </button>
               </div>
 
@@ -516,19 +519,35 @@ const TownView = ({
 
                   return (
                     <>
-                      {/* Garden Bed Specific Actions */}
-                      {b.type === 'garden-bed' && gs && !gs.isDead && (
+                      {/* Garden Bed or Tree Specific Actions */}
+                      {(b.type === 'garden-bed' || b.type === 'garden-tree') && gs && (
                         <>
-                          <button
-                            onClick={() => {
-                              interactWithBuilding(b.id, 'clear');
-                              setSelectedBedForActionMenu(null);
-                            }}
-                            className="flex items-center gap-4 bg-[#8d6e63] border-4 border-[#3e2723] p-4 hover:bg-[#a1887f] active:translate-y-1 transition-all text-left"
-                          >
-                            <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shovel" />
-                            <span className="text-white text-[10px]">SHOVEL (RESET)</span>
-                          </button>
+                          {/* Level 1 Trees start with produceType but need to move to Level 2 */}
+                          {b.type === 'garden-tree' && gs.currentLevel === 1 && (
+                            <button
+                              onClick={() => {
+                                interactWithBuilding(b.id, 'select-produce', { produceType: gs.produceType });
+                                setSelectedBedForActionMenu(null);
+                              }}
+                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                            >
+                              <img src={`/images/garden-${gs.produceType}.png`} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Plant" />
+                              <span className="text-[#3e2723] text-[10px]">PLANT / START GROWING</span>
+                            </button>
+                          )}
+
+                          {gs.currentLevel >= 2 && (
+                            <button
+                              onClick={() => {
+                                interactWithBuilding(b.id, 'clear');
+                                setSelectedBedForActionMenu(null);
+                              }}
+                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                            >
+                              <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shovel" />
+                              <span className="text-[#3e2723] text-[10px]">{gs.currentLevel === 5 ? 'SHOVEL (CLEAR DEAD)' : 'SHOVEL (RESET)'}</span>
+                            </button>
+                          )}
 
                           {gs.currentLevel === 3 && (
                             <button
@@ -536,10 +555,10 @@ const TownView = ({
                                 interactWithBuilding(b.id, 'water');
                                 setSelectedBedForActionMenu(null);
                               }}
-                              className="flex items-center gap-4 bg-blue-600 border-4 border-[#3e2723] p-4 hover:bg-blue-500 active:translate-y-1 transition-all text-left"
+                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
                             >
                               <img src="/images/garden-watering-can.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Water" />
-                              <span className="text-white text-[10px]">WATER</span>
+                              <span className="text-[#3e2723] text-[10px]">WATER</span>
                             </button>
                           )}
 
@@ -549,10 +568,10 @@ const TownView = ({
                                 interactWithBuilding(b.id, 'harvest');
                                 setSelectedBedForActionMenu(null);
                               }}
-                              className="flex items-center gap-4 bg-green-600 border-4 border-[#3e2723] p-4 hover:bg-green-500 active:translate-y-1 transition-all text-left"
+                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
                             >
                               <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
-                              <span className="text-white text-[10px]">COLLECT</span>
+                              <span className="text-[#3e2723] text-[10px]">COLLECT</span>
                             </button>
                           )}
                         </>
@@ -564,10 +583,10 @@ const TownView = ({
                           interactWithBuilding(b.id, 'remove');
                           setSelectedBedForActionMenu(null);
                         }}
-                        className="flex items-center gap-4 bg-red-800 border-4 border-[#3e2723] p-4 hover:bg-red-700 active:translate-y-1 transition-all text-left"
+                        className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
                       >
                         <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
-                        <span className="text-white text-[10px]">BIN (REMOVE)</span>
+                        <span className="text-[#3e2723] text-[10px]">BIN (REMOVE)</span>
                       </button>
                     </>
                   );

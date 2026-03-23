@@ -129,14 +129,14 @@ export const useGameState = () => {
             }
           };
         case 'water':
-          // Watering moves from level 3 to level 4
+          // Watering moves from level 3 to state that will become 4 in 2 min
           if (gs.currentLevel === 3) {
             return {
               ...b,
               growthState: {
                 ...gs,
-                currentLevel: 4,
-                harvestReadyAt: now,
+                isWatered: true,
+                wateredAt: now,
                 lastUpdate: now
               }
             };
@@ -145,13 +145,14 @@ export const useGameState = () => {
         case 'harvest':
           if (gs.currentLevel === 4) {
             setResources((r: any) => ({ ...r, coins: r.coins + 20 })); 
-            // Revert to level 1 (empty wheat state)
+            // Revert to level 1 (empty state)
             return {
               ...b,
               growthState: {
                 ...gs,
-                produceType: null,
+                produceType: b.type === 'garden-tree' ? gs.produceType : null,
                 currentLevel: 1,
+                isWatered: false,
                 startTime: now,
                 lastUpdate: now
               }
@@ -159,14 +160,14 @@ export const useGameState = () => {
           }
           break;
         case 'clear':
-          if (gs.isDead) {
+          if (gs.currentLevel >= 2) {
             return {
               ...b,
               growthState: {
                 ...gs,
-                produceType: null,
+                produceType: b.type === 'garden-tree' ? gs.produceType : null,
                 currentLevel: 1,
-                isDead: false,
+                isWatered: false,
                 startTime: now,
                 lastUpdate: now
               }
@@ -207,19 +208,26 @@ export const useGameState = () => {
         
         const newBuilding: any = { id: newId, type, offset };
         
-        if (type === 'garden-bed') {
+        if (type === 'garden-bed' || type === 'garden-tree') {
           // Calculate grid coordinates from position (world coordinates)
           const gridX = Math.floor((offset.x + (20 * 32) / 2) / 32);
           const gridY = Math.floor((offset.y + (20 * 32) / 2) / 32);
           
+          let produceType = null;
+          if (type === 'garden-tree') {
+             if (cost.isApple) produceType = 'apple';
+             if (cost.isPeach) produceType = 'peach';
+             if (cost.isCherry) produceType = 'cherry';
+          }
+
           newBuilding.growthState = {
             id: newId,
             coordinates: { x: gridX, y: gridY },
-            produceType: null,
+            produceType: produceType,
             currentLevel: 1, // Start at level 1
             startTime: Date.now(),
             lastUpdate: Date.now(),
-            isDead: false
+            isWatered: false
           };
         }
         
@@ -243,13 +251,13 @@ export const useGameState = () => {
         let changed = false;
         const now = Date.now();
         const next = prev.map(b => {
-          if (b.type === 'garden-bed' && b.growthState) {
+          if ((b.type === 'garden-bed' || b.type === 'garden-tree') && b.growthState) {
             const gs = b.growthState;
-            if (gs.isDead || !gs.produceType) return b;
+            if (gs.currentLevel === 5 || !gs.produceType) return b;
 
             const elapsedTime = now - gs.startTime;
             
-            // 1. Automatic Growth (2 -> 3)
+            // 1. Automatic Growth (2 -> 3) in 5 min
             if (gs.currentLevel === 2) {
               const nextLevel = elapsedTime > 300000 ? 3 : 2;
               if (nextLevel !== gs.currentLevel) {
@@ -259,19 +267,27 @@ export const useGameState = () => {
               }
             }
 
-            // 2. Death Timer at Stage 3 (Watering Gate)
-            if (gs.currentLevel === 3 && gs.waterNeededAt) {
+            // 2. Growth from Water (3 -> 4) in 2 min
+            if (gs.currentLevel === 3 && gs.isWatered && gs.wateredAt) {
+               if (now - gs.wateredAt > 120000) {
+                 changed = true;
+                 return { ...b, growthState: { ...gs, currentLevel: 4, harvestReadyAt: now, lastUpdate: now } };
+               }
+            }
+
+            // 3. Death Timer at Stage 3 (Watering Gate)
+            if (gs.currentLevel === 3 && gs.waterNeededAt && !gs.isWatered) {
               if (now - gs.waterNeededAt > 86400000) { // 24 hours
                 changed = true;
-                return { ...b, growthState: { ...gs, isDead: true, lastUpdate: now } };
+                return { ...b, growthState: { ...gs, currentLevel: 5, lastUpdate: now } };
               }
             }
 
-            // 3. Death Timer at Stage 4 (Harvest Window)
+            // 4. Death Timer at Stage 4 (Harvest Window)
             if (gs.currentLevel === 4 && gs.harvestReadyAt) {
               if (now - gs.harvestReadyAt > 86400000) { // 24 hours
                 changed = true;
-                return { ...b, growthState: { ...gs, isDead: true, lastUpdate: now } };
+                return { ...b, growthState: { ...gs, currentLevel: 5, lastUpdate: now } };
               }
             }
           }
@@ -288,6 +304,21 @@ export const useGameState = () => {
     const needed = 10 - spawnedResources.length;
     if (needed <= 0) return;
   }, [exploredTerritory, spawnedResources.length]);
+
+  const resetGame = useCallback(() => {
+    localStorage.removeItem('warden_buildings');
+    setBuildings([]);
+    setResources({
+      wood: 50,
+      metal: 20,
+      pebbles: 10,
+      coins: 100
+    });
+    setExploredTerritory(null);
+    setSpawnedResources([]);
+    setTotalDistanceWalked(0);
+    setAvatarPos({ x: 8, y: 8 });
+  }, []);
 
   return {
     resources,
@@ -306,6 +337,8 @@ export const useGameState = () => {
     moveAvatar,
     villageZoom,
     setVillageZoom,
-    interactWithBuilding
+    interactWithBuilding,
+    resetGame
   };
 };
+

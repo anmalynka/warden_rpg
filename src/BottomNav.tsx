@@ -8,7 +8,7 @@ const BottomNav = ({ activeTab, onTabChange }) => {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-24 bg-[#f9f5f0] border-t-4 border-[#3e2723] z-[3000] flex justify-around items-center px-4 font-['Press_Start_2P'] shadow-[0_-4px_12px_rgba(0,0,0,0.2)]">
+    <div className="fixed bottom-0 left-0 right-0 h-[84px] bg-[#f9f5f0] border-t-4 border-[#3e2723] z-[3000] flex justify-around items-center px-4 font-['Press_Start_2P'] shadow-[0_-4px_12px_rgba(0,0,0,0.2)]">
       {tabs.map((tab) => (
         <button
           key={tab.id}

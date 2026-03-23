@@ -15,7 +15,10 @@ const BuildMenu = ({ resources, onBuild }) => {
 
   const blueprints = [
     { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '/images/house.png', isImage: true, cost: { wood: starterHouseCost } },
-    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10 } }
+    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10 } },
+    { id: 'apple-tree', type: 'garden-tree', name: 'APPLE TREE', icon: '/images/garden-apple-1.png', isImage: true, cost: { wood: 15, isApple: true } },
+    { id: 'peach-tree', type: 'garden-tree', name: 'PEACH TREE', icon: '/images/garden-peach-1.png', isImage: true, cost: { wood: 15, isPeach: true } },
+    { id: 'cherry-tree', type: 'garden-tree', name: 'CHERRY TREE', icon: '/images/garden-cherry-1.png', isImage: true, cost: { wood: 15, isCherry: true } }
   ];
 
   const canAfford = (cost) => {
@@ -59,7 +62,9 @@ const BuildMenu = ({ resources, onBuild }) => {
                      <span className="text-[#3e2723] text-[9px]">{bp.name}</span>
                    </div>
                    <div className="flex flex-col items-end gap-1">
-                     {Object.entries(bp.cost).map(([res, amount]) => (
+                     {Object.entries(bp.cost)
+                       .filter(([res]) => !['isApple', 'isPeach', 'isCherry'].includes(res))
+                       .map(([res, amount]) => (
                        <div key={res} className="flex items-center gap-1">
                          <img 
                            src={res === 'wood' ? '/images/tools-wood.png' : res === 'metal' ? '/images/tools-iron.png' : res === 'pebbles' ? '/images/tools-crystals.png' : '/images/tools-coins.png'} 
