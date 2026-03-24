@@ -11,7 +11,7 @@ const MapComponent = ({
   spawnedResources = [],
   onSetSpawnedResources,
   onCollect,
-  resources = { wood: 0, metal: 0, pebbles: 0, coins: 0 },
+  resources = { wood: 0, metal: 0, coins: 0 },
   setResources,
   addWalkDistance,
   totalDistanceWalked = 0,
@@ -68,7 +68,6 @@ const MapComponent = ({
   const assetMap: any = {
     wood: '/images/tools-wood.png',
     metal: '/images/tools-iron.png',
-    pebbles: '/images/tools-crystals.png',
     coins: '/images/tools-coins.png'
   };
 
@@ -581,7 +580,6 @@ const MapComponent = ({
            <div className="bg-[#f9f5f0] p-2 rounded-full flex justify-around shadow-xl max-w-sm mx-auto pointer-events-auto">
               <ResourceItem iconUrl="/images/tools-wood.png" value={resources?.wood || 0} label="Wood" />
               <ResourceItem iconUrl="/images/tools-iron.png" value={resources?.metal || 0} label="Metal" />
-              <ResourceItem iconUrl="/images/tools-crystals.png" value={resources?.pebbles || 0} label="Pebbles" />
               <ResourceItem iconUrl="/images/tools-coins.png" value={resources?.coins || 0} label="Coins" />
            </div>
         </div>
@@ -606,7 +604,7 @@ const MapComponent = ({
            {isTripping && (
              <div className="text-[6px] opacity-70 flex flex-col gap-1">
                <div>{nearbyResource ? `NEARBY: ${nearbyResource.type}` : 'NO RESOURCE NEARBY'}</div>
-               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - Number((totalDistanceWalked % 100).toFixed(0))}m TO 10💎)</div>
+               <div className="text-blue-600">WALKED: {totalDistanceWalked.toFixed(0)}m ({100 - Number((totalDistanceWalked % 100).toFixed(0))}m TO 10🪙)</div>
              </div>
            )}
          </div>
@@ -643,7 +641,13 @@ const MapComponent = ({
       {/* Blocking Pending Modal */}
       {pendingCollections.length > 0 && (
         <div className="absolute inset-0 z-[7000] flex items-center justify-center bg-black/40 backdrop-blur-sm">
-           <div className="parchment-panel p-8 flex flex-col items-center gap-6 max-w-[300px] w-full text-center">
+           <div className="parchment-panel p-8 flex flex-col items-center gap-6 max-w-[300px] w-full text-center relative">
+              <button 
+                onClick={() => handleCancelCollection(pendingCollections[0].id, "Cancelled")}
+                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+              >
+                X
+              </button>
               <div className="text-5xl animate-pulse">⏳</div>
               <div className="flex flex-col gap-2">
                 <div className="text-[#5d4a44] text-[12px] font-['Press_Start_2P'] uppercase">COLLECTING {pendingCollections[0].type}</div>
@@ -659,13 +663,6 @@ const MapComponent = ({
                   return `${m}:${s < 10 ? '0' : ''}${s}`;
                 })()}
               </div>
-
-              <button 
-                onClick={() => handleCancelCollection(pendingCollections[0].id, "Cancelled")}
-                className="btn-off-white px-6 py-3 text-[10px] font-['Press_Start_2P'] w-full"
-              >
-                CANCEL (LOSE ALL)
-              </button>
            </div>
         </div>
       )}

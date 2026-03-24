@@ -8,7 +8,6 @@ export const useGameState = () => {
     return saved ? JSON.parse(saved) : {
       wood: 50,
       metal: 20,
-      pebbles: 10,
       coins: 100
     };
   });
@@ -59,7 +58,62 @@ export const useGameState = () => {
   // Default Tree Cooldowns (Key: "c,r", Value: timestamp when ready)
   const [treeCooldowns, setTreeCooldowns] = useState<{[key: string]: number}>({});
 
+  // NPCs State
+  const [npcs, setNpcs] = useState<any[]>(() => {
+    const saved = localStorage.getItem('warden_npcs');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   // 2. ALL USECALLBACK AFTER USESTATE
+  
+  // BFS Pathfinding Utility
+  const findPath = useCallback((start: {c: number, r: number}, end: {c: number, r: number}, obstacles: any[]) => {
+    if (start.c === end.c && start.r === end.r) return [];
+    
+    // Convert obstacles to a set for fast lookup
+    const obstacleSet = new Set();
+    obstacles.forEach(ob => {
+      if (ob.isMultiTile) {
+        ob.tiles.forEach((t: any) => obstacleSet.add(`${t.c},${t.r}`));
+      } else {
+        obstacleSet.add(`${ob.c},${ob.r}`);
+      }
+    });
+
+    const queue: any[] = [[start]];
+    const visited = new Set([`${start.c},${start.r}`]);
+    const gridLimit = 20; // GRID_SIZE
+
+    while (queue.length > 0) {
+      const path = queue.shift();
+      const current = path[path.length - 1];
+
+      if (current.c === end.c && current.r === end.r) {
+        return path.slice(1); // Return path without start point
+      }
+
+      const neighbors = [
+        { c: current.c, r: current.r - 1 },
+        { c: current.c, r: current.r + 1 },
+        { c: current.c - 1, r: current.r },
+        { c: current.c + 1, r: current.r }
+      ];
+
+      for (const next of neighbors) {
+        const key = `${next.c},${next.r}`;
+        // Bounds check & Water check (using a simpler logic or passing map)
+        // For simplicity, we assume walkable if not in obstacleSet and within bounds
+        // In a real scenario, we'd check ISLAND_MAP[next.r][next.c] for WATER (1)
+        if (next.c >= 0 && next.c < gridLimit && next.r >= 0 && next.r < gridLimit && 
+            !obstacleSet.has(key) && !visited.has(key)) {
+          visited.add(key);
+          queue.push([...path, next]);
+        }
+      }
+    }
+    return null; // No path found
+  }, []);
+
   const moveAvatar = useCallback((dx: number, dy: number) => {
     if (isInsideHouse) return; // Cannot move while inside
     setAvatarPos((prev: any) => ({
@@ -76,18 +130,17 @@ export const useGameState = () => {
       
       if (newMilestone > oldMilestone) {
         const reward = (newMilestone - oldMilestone) * 10;
-        setResources((r: any) => ({ ...r, pebbles: (r.pebbles || 0) + reward }));
+        setResources((r: any) => ({ ...r, coins: (r.coins || 0) + reward }));
       }
       return newTotal;
     });
   }, []);
 
   const spawnResourcesInArea = useCallback((centerPos: [number, number], radiusMeters: number, count: number) => {
-    const types = ['wood', 'metal', 'pebbles', 'coins'];
+    const types = ['wood', 'metal', 'coins'];
     const assetMap: any = {
       wood: '/images/tools-wood.png',
       metal: '/images/tools-iron.png',
-      pebbles: '/images/tools-crystals.png',
       coins: '/images/tools-coins.png'
     };
 
@@ -550,17 +603,33 @@ export const useGameState = () => {
 
   const resetGame = useCallback(() => {
     localStorage.removeItem('warden_buildings');
+    localStorage.removeItem('warden_level');
+    localStorage.removeItem('warden_xp');
+    localStorage.removeItem('warden_resources');
+    localStorage.removeItem('warden_inventory');
+    localStorage.removeItem('warden_distance');
+    localStorage.removeItem('warden_territory');
+    
     setBuildings([]);
+    setLevel(1);
+    setXp(0);
     setResources({
       wood: 50,
       metal: 20,
-      pebbles: 10,
       coins: 100
+    });
+    setInventory({
+      wheat: 0,
+      tomato: 0,
+      pumpkin: 0,
+      apple: 0,
+      peach: 0,
+      cherry: 0
     });
     setExploredTerritory(null);
     setSpawnedResources([]);
     setTotalDistanceWalked(0);
-    setAvatarPos({ x: 8, y: 8 });
+    setAvatarPos({ x: 0, y: 0 });
   }, []);
 
   return {

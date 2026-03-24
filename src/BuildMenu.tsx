@@ -69,7 +69,7 @@ const BuildMenu = ({ resources, onBuild }) => {
                      {Object.entries(bp.cost).map(([res, amount]) => (
                        <div key={res} className="flex items-center gap-1">
                          <img 
-                           src={res === 'wood' ? '/images/tools-wood.png' : res === 'metal' ? '/images/tools-iron.png' : res === 'pebbles' ? '/images/tools-crystals.png' : '/images/tools-coins.png'} 
+                           src={res === 'wood' ? '/images/tools-wood.png' : res === 'metal' ? '/images/tools-iron.png' : '/images/tools-coins.png'} 
                            alt={res} 
                            className="w-3 h-3 object-contain pixel-art" 
                            style={{ imageRendering: 'pixelated' }} 

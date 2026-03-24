@@ -6,7 +6,8 @@ import MapComponent from './MapComponent'
 import LoginScreen from './LoginScreen'
 import RoleSelection from './RoleSelection'
 import BottomNav from './BottomNav'
-import TownView, { ISLAND_MAP, GRID_SIZE, TILE_SIZE, TILE_TYPES } from './TownView'
+import TownView from './TownView'
+import { ISLAND_MAP, GRID_SIZE, TILE_SIZE, TILE_TYPES } from './MapConstants'
 import './App.css'
 
 interface Obstacle {
@@ -355,7 +356,6 @@ function App() {
       ...prev,
       wood: (prev.wood || 0) + 100,
       metal: (prev.metal || 0) + 100,
-      pebbles: (prev.pebbles || 0) + 100,
       coins: (prev.coins || 0) + 100
     }));
   };
@@ -405,7 +405,7 @@ function App() {
   }
 
   return (
-    <div className={`relative w-screen min-h-screen ${activeTab === 'backpack' ? 'bg-[#f9f5f0]' : 'bg-[#1e88e5]'}`}>
+    <div className={`relative w-screen min-h-screen ${activeTab === 'backpack' || activeTab === 'settings' ? 'bg-[#f9f5f0]' : 'bg-[#1e88e5]'}`}>
       {/* HUD and Global UI - Centered Top Cluster */}
       {!isTripping && (
         <div className="fixed top-4 left-0 right-0 pointer-events-none flex justify-center items-start z-[3000] px-4">
@@ -594,31 +594,40 @@ function App() {
         )}
 
         {activeTab === 'settings' && (
-          <div className="fixed inset-0 bg-[#1d3a19] flex flex-col items-center justify-center font-['Press_Start_2P'] p-6">
-             <div className="bg-[#8d6e63] border-4 border-[#3e2723] p-8 w-full max-w-sm pixel-border">
-                <h2 className="text-white text-md mb-8 text-center">SETTINGS</h2>
-                <div className="flex flex-col gap-4">
-                   <div className="text-white text-[10px]">USER: {user}</div>
-                   <div className="text-white text-[10px]">ROLE: {role?.name}</div>
-                   <button 
-                     onClick={() => {
-                        if (window.confirm('Restart game from new village? All progress will be lost.')) {
-                          resetGame();
-                          setActiveTab('village');
-                        }
-                     }}
-                     className="mt-2 btn-off-white p-4 text-[10px]"
-                   >
-                     RESTART GAME
-                   </button>
-                   <button 
-                     onClick={() => setAppState('login')}
-                     className="mt-6 btn-off-white p-4 text-[10px]"
-                   >
-                     LOGOUT
-                   </button>
+          <div className="w-full bg-[#f9f5f0] p-10 pb-32 font-['Press_Start_2P'] flex flex-col items-center">
+            <h2 className="text-[#3e2723] text-center text-[14px] uppercase mb-12">SETTINGS</h2>
+            
+            <div className="flex flex-col gap-6 w-full max-w-xs">
+                <div className="flex flex-col items-center gap-2">
+                   <div className="text-[7px] text-[#8b7a6d] uppercase">USER</div>
+                   <div className="text-[14px] text-[#3e2723]">{user}</div>
                 </div>
-             </div>
+                
+                <div className="flex flex-col items-center gap-2">
+                   <div className="text-[7px] text-[#8b7a6d] uppercase">ROLE</div>
+                   <div className="text-[14px] text-[#3e2723]">{role?.name}</div>
+                </div>
+
+                <div className="flex flex-col gap-3 mt-4">
+                  <button 
+                    onClick={() => {
+                       if (window.confirm('Restart game from new village? All progress will be lost.')) {
+                         resetGame();
+                         setActiveTab('village');
+                       }
+                    }}
+                    className="btn-off-white py-4 text-[10px] w-full shadow-[0_4px_0_0_#d1c4b9]"
+                  >
+                    RESTART GAME
+                  </button>
+                  <button 
+                    onClick={() => setAppState('login')}
+                    className="btn-off-white py-4 text-[10px] w-full shadow-[0_4px_0_0_#d1c4b9]"
+                  >
+                    LOGOUT
+                  </button>
+                </div>
+            </div>
           </div>
         )}
       </div>

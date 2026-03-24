@@ -13,7 +13,6 @@ export const ResourcesPanel = ({ resources }) => (
   <div className="pointer-events-auto bg-[#f9f5f0] px-6 py-3 rounded-full flex items-center gap-4 shadow-[0_6px_0_0_#d1c4b9,0_12px_24px_rgba(0,0,0,0.3)] border-2 border-[#e6ded5]">
     <ResourceItem iconUrl="/images/tools-wood.png" value={resources?.wood || 0} label="Wood" />
     <ResourceItem iconUrl="/images/tools-iron.png" value={resources?.metal || 0} label="Metal" />
-    <ResourceItem iconUrl="/images/tools-crystals.png" value={resources?.pebbles || 0} label="Pebbles" />
     <ResourceItem iconUrl="/images/tools-coins.png" value={resources?.coins || 0} label="Coins" />
   </div>
 );
