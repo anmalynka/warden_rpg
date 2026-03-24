@@ -41,7 +41,7 @@ const LoginScreen = ({ onLogin }) => {
 
           <button 
             type="submit"
-            className="mt-4 bg-[#4caf50] hover:bg-[#66bb6a] border-b-6 border-r-6 border-[#1b5e20] text-white p-4 text-[12px] active:translate-y-1 active:border-b-2 active:border-r-2 transition-all"
+            className="mt-4 btn-off-white p-4 text-[12px] font-bold"
           >
             ENTER WORLD
           </button>

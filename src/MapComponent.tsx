@@ -164,8 +164,8 @@ const MapComponent = ({
           // But since the listener is created once in initMap, we'll use a window variable 
           // or a ref for the latest isPlacing value to avoid closure issues.
           if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
-            if (window.pendingBuildingGlobal.type === 'garden-bed') {
-              // Garden beds are only for the village grid
+            if (window.pendingBuildingGlobal.type === 'garden-bed' || window.pendingBuildingGlobal.type === 'garden-tree') {
+              // Garden beds and trees are only for the village grid
               return;
             }
             onPlaceBuilding(
@@ -289,6 +289,8 @@ const MapComponent = ({
       case 'well': return '⛲';
       case 'fence': return '🚧';
       case 'garden': return '🌻';
+      case 'garden-tree': return '🌳';
+      case 'garden-bed': return '🌱';
       case 'barn': return '🛖';
       default: return '🏠';
     }
@@ -506,16 +508,16 @@ const MapComponent = ({
   }, [mapReady, exploredTerritory, spawnedResources, isTripping]);
 
   return (
-    <div className="fixed inset-0 z-0 bg-slate-200 pixel-art">
-      <div className="absolute inset-0 z-[-1]" style={{ background: 'linear-gradient(to bottom, #9fb68d 0%, #cbd5e1 100%)' }} />
+    <div className="fixed inset-0 z-0 bg-[#08060d] pixel-art overflow-hidden" style={{ contain: 'paint' }}>
+      <div className="absolute inset-0 z-[-1]" style={{ background: 'linear-gradient(to bottom, #9fb68d 0%, #cbd5e1 100%)', opacity: 0.5 }} />
       <div ref={mapContainer} className="w-full h-full" style={{ imageRendering: 'pixelated' }} />
       <div className="absolute right-4 bottom-48 z-20 flex flex-col gap-2">
-        <button onClick={handleZoomIn} className="w-10 h-10 bg-[#e9d681] border-4 border-[#8b7a6d] flex items-center justify-center text-[#5d4a44] font-bold shadow-lg active:scale-95">+</button>
-        <button onClick={handleZoomOut} className="w-10 h-10 bg-[#e9d681] border-4 border-[#8b7a6d] flex items-center justify-center text-[#5d4a44] font-bold shadow-lg active:scale-95">-</button>
+        <button onClick={handleZoomIn} className="w-10 h-10 btn-off-white flex items-center justify-center font-bold active:scale-95">+</button>
+        <button onClick={handleZoomOut} className="w-10 h-10 btn-off-white flex items-center justify-center font-bold active:scale-95">-</button>
         {isTripping && (
           <button 
             onClick={handleRecenter} 
-            className="w-10 h-10 bg-[#f4ece4] border-4 border-[#8b7a6d] flex items-center justify-center text-[#5d4a44] shadow-lg active:scale-95 transition-all mt-2"
+            className="w-10 h-10 btn-off-white flex items-center justify-center active:scale-95 mt-2"
           >
             🎯
           </button>
@@ -568,14 +570,16 @@ const MapComponent = ({
              <div className="flex flex-col gap-3 w-full">
                <button 
                  onClick={handleCollectImmediate} 
-                 className="bg-[#e9d681] border-2 border-[#8b7a6d] px-4 py-3 text-[#5d4a44] text-[8px] font-['Press_Start_2P'] shadow-md active:scale-95 transition-all w-full"
+                 className="btn-off-white px-4 py-3 text-[8px] font-['Press_Start_2P'] active:scale-95 w-full flex items-center justify-center gap-2"
                >
+                 <img src="/images/garden-pick.png" className="w-4 h-4 object-contain" alt="Pick" />
                  PICK 1 (NOW)
                </button>
                <button 
                  onClick={handleCollectDelayed} 
-                 className="bg-[#9fb68d] border-2 border-[#8b7a6d] px-4 py-3 text-[#5d4a44] text-[8px] font-['Press_Start_2P'] shadow-md active:scale-95 transition-all w-full"
+                 className="btn-off-white px-4 py-3 text-[8px] font-['Press_Start_2P'] active:scale-95 w-full flex items-center justify-center gap-2"
                >
+                 <img src="/images/garden-pick.png" className="w-4 h-4 object-contain" alt="Pick" />
                  PICK 10 (WAIT 3 MIN)
                </button>
              </div>
@@ -605,7 +609,7 @@ const MapComponent = ({
 
               <button 
                 onClick={() => handleCancelCollection(pendingCollections[0].id, "Cancelled")}
-                className="bg-[#d97e7e] border-2 border-[#5d4a44] px-6 py-3 text-white text-[10px] font-['Press_Start_2P'] shadow-md active:translate-y-1 w-full"
+                className="btn-off-white px-6 py-3 text-[10px] font-['Press_Start_2P'] w-full"
               >
                 CANCEL (LOSE ALL)
               </button>
@@ -634,7 +638,7 @@ const MapComponent = ({
           }}
         >
           <div className="flex flex-col items-center gap-2">
-            {pendingBuilding.type === 'garden-bed' ? (
+            {pendingBuilding.type === 'garden-bed' || pendingBuilding.type === 'garden-tree' ? (
               <div className="bg-red-600/90 text-white text-[6px] p-1 font-['Press_Start_2P'] border-2 border-white whitespace-nowrap">
                 VILLAGE ONLY
               </div>
@@ -650,6 +654,12 @@ const MapComponent = ({
                 className="w-12 h-12 object-contain grayscale opacity-50" 
                 alt="Ghost Garden Bed"
               />
+            ) : pendingBuilding.type === 'garden-tree' ? (
+              <img 
+                src="/images/garden-apple-1.png" 
+                className="w-12 h-12 object-contain grayscale opacity-50" 
+                alt="Ghost Garden Tree"
+              />
             ) : (
               <span className="text-5xl">
                 {getBuildingEmoji(pendingBuilding.type)}
@@ -660,7 +670,7 @@ const MapComponent = ({
       )}
 
       <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
-        <button onClick={onToggleTrip} className={`px-8 py-4 font-['Press_Start_2P'] text-[10px] text-[#5d4a44] border-4 border-[#8b7a6d] active:translate-y-1 transition-all ${isTripping ? 'bg-[#d97e7e]' : 'bg-[#e9d681] shadow-[4px_4px_0_0_rgba(0,0,0,0.2)]'}`}>
+        <button onClick={onToggleTrip} className="px-8 py-4 font-['Press_Start_2P'] text-[10px] btn-off-white">
           {isTripping ? 'EXIT TRIP' : 'START TRIP'}
         </button>
       </div>

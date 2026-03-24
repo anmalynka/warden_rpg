@@ -12,6 +12,23 @@ export const TILE_TYPES = {
 export const GRID_SIZE = 20;
 export const TILE_SIZE = 32;
 
+// Offset to center the grid at world (0,0)
+const offsetX = -(GRID_SIZE * TILE_SIZE) / 2;
+const offsetY = -(GRID_SIZE * TILE_SIZE) / 2;
+
+export const worldToGrid = (x: number, y: number) => {
+  const c = Math.floor((x - offsetX) / TILE_SIZE);
+  const r = Math.floor((y - offsetY) / TILE_SIZE);
+  return { c, r };
+};
+
+export const gridToWorld = (c: number, r: number) => {
+  return {
+    x: offsetX + c * TILE_SIZE + TILE_SIZE / 2,
+    y: offsetY + r * TILE_SIZE + TILE_SIZE / 2
+  };
+};
+
 // Generate an organic blob-like island
 const generateIslandMap = () => {
   const map = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(TILE_TYPES.WATER));
@@ -53,31 +70,55 @@ const TownView = ({
   facing = 'down',
   isWalking = false,
   onUpdateObstacles,
-  interactWithBuilding
-}: any) => {
+  interactWithBuilding,
+  initialSelectedBuilding,
+  onClearInitialSelection,
+  isInsideHouse,
+  minutesSlept = 0,
+  treeCooldowns = {}
+  }: any) => {
   const [hoverTile, setHoverTile] = useState<{c: number, r: number} | null>(null);
   const [selectedBedForMenu, setSelectedBedForMenu] = useState<string | null>(null);
   const [selectedBedForActionMenu, setSelectedBedForActionMenu] = useState<string | null>(null);
   const touchDistRef = useRef<number | null>(null);
+  const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
 
-  // Offset to center the grid at world (0,0)
-  const offsetX = -(GRID_SIZE * TILE_SIZE) / 2;
-  const offsetY = -(GRID_SIZE * TILE_SIZE) / 2;
+  // Automatically open menu for new buildings (e.g., from placement)
+  useEffect(() => {
+    if (initialSelectedBuilding) {
+      const b = buildings.find((b: any) => b.id === initialSelectedBuilding);
+      if (b) {
+        if (b.type === 'garden-bed' || b.type === 'garden-tree') {
+          setSelectedBedForMenu(b.id);
+        } else {
+          setSelectedBedForActionMenu(b.id);
+        }
+      }
+      onClearInitialSelection?.();
+    }
+  }, [initialSelectedBuilding, buildings, onClearInitialSelection]);
 
   // Stable random decorations with sub-tile offsets
   const decorations = useMemo(() => {
     const decoList: any[] = [];
     const assets = [
       { url: '/images/Bush_simple1_1.png', type: 'bush' },
-      { url: '/images/Bush_blue_flowers1.png', type: 'mushroom' }
+      { url: '/images/Bush_blue_flowers1.png', type: 'mushroom' },
+      { url: '/images/Tree1.png', type: 'default-tree' }, // Added default trees
+      { url: '/images/Tree2.png', type: 'default-tree' }
     ];
 
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
         if (ISLAND_MAP[r][c] === TILE_TYPES.GRASS) {
           const rand = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453 % 1;
-          if (Math.abs(rand) < 0.12) {
+          // Increased density slightly to account for trees, but tree chance is lower
+          if (Math.abs(rand) < 0.15) {
             const assetIdx = Math.floor(Math.abs(rand * 100)) % assets.length;
+            
+            // Trees need more space, prevent them from spawning too close if possible, 
+            // but for now simple random is fine.
+            
             const subX = (rand * 8); // -4 to +4
             const subY = (Math.cos(r * 10) * 8); // -4 to +4
             
@@ -86,7 +127,7 @@ const TownView = ({
               asset: assets[assetIdx].url, 
               type: assets[assetIdx].type,
               subX, subY,
-              id: `deco-${r}-${c}`
+              id: `tree-${c}-${r}` // Consistent ID for cooldown tracking
             });
           }
         }
@@ -98,12 +139,33 @@ const TownView = ({
   // Stabilize obstacles with useMemo
   const allObstacles = useMemo(() => {
     const decoObstacles = decorations.map(d => ({ r: d.r, c: d.c }));
-    const buildingObstacles = buildings
-      .filter((b: any) => b.growthState && b.growthState.coordinates)
-      .map((b: any) => ({ 
-        r: b.growthState.coordinates.y, 
-        c: b.growthState.coordinates.x 
-      }));
+    const buildingObstacles: {r: number, c: number}[] = [];
+    
+    buildings.forEach((b: any) => {
+      if (b.growthState && b.growthState.coordinates) {
+        // Garden beds and trees (1x1)
+        buildingObstacles.push({ 
+          r: b.growthState.coordinates.y, 
+          c: b.growthState.coordinates.x 
+        });
+      } else if (b.type === 'starter-house' && b.offset) {
+        // House (2x2)
+        const gridPos = worldToGrid(b.offset.x, b.offset.y);
+        // The house is 60x60, so it covers approximately 2x2 tiles (32px each)
+        // Adjust for its visual center (translate -50%, -85%)
+        // The center is at gridPos.c, gridPos.r
+        // Based on its size and offset, let's block the base tiles
+        buildingObstacles.push({ r: gridPos.r, c: gridPos.c });
+        buildingObstacles.push({ r: gridPos.r, c: gridPos.c - 1 });
+        buildingObstacles.push({ r: gridPos.r - 1, c: gridPos.c });
+        buildingObstacles.push({ r: gridPos.r - 1, c: gridPos.c - 1 });
+      } else if (b.offset) {
+        // Default 1x1 obstacle for other buildings
+        const gridPos = worldToGrid(b.offset.x, b.offset.y);
+        buildingObstacles.push({ r: gridPos.r, c: gridPos.c });
+      }
+    });
+
     return [...decoObstacles, ...buildingObstacles];
   }, [decorations, buildings]);
 
@@ -111,19 +173,6 @@ const TownView = ({
   useEffect(() => {
     onUpdateObstacles?.(allObstacles);
   }, [allObstacles, onUpdateObstacles]);
-
-  const worldToGrid = (x: number, y: number) => {
-    const c = Math.floor((x - offsetX) / TILE_SIZE);
-    const r = Math.floor((y - offsetY) / TILE_SIZE);
-    return { c, r };
-  };
-
-  const gridToWorld = (c: number, r: number) => {
-    return {
-      x: offsetX + c * TILE_SIZE + TILE_SIZE / 2,
-      y: offsetY + r * TILE_SIZE + TILE_SIZE / 2
-    };
-  };
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -156,17 +205,19 @@ const TownView = ({
         ? tileType === TILE_TYPES.GRASS 
         : (tileType === TILE_TYPES.GRASS || tileType === TILE_TYPES.SAND);
 
-      // Check for obstacles
-      const isOccupied = decorations.some(d => d.r === hoverTile.r && d.c === hoverTile.c) ||
-                         buildings.some((b: any) => {
-                           // If it's a village-grid building (garden bed)
-                           if (b.growthState) {
-                             return b.growthState.coordinates.x === hoverTile.c && b.growthState.coordinates.y === hoverTile.r;
-                           }
-                           // If it's a world-coordinate building (house)
-                           const buildingGrid = worldToGrid(b.offset.x, b.offset.y);
-                           return buildingGrid.c === hoverTile.c && buildingGrid.r === hoverTile.r;
-                         });
+      // Check for obstacles using the calculated allObstacles
+      const checkOccupied = (c: number, r: number) => 
+        allObstacles.some(ob => ob.r === r && ob.c === c);
+
+      let isOccupied = checkOccupied(hoverTile.c, hoverTile.r);
+      
+      // If placing a house, check the 2x2 area
+      if (pendingBuilding.type === 'starter-house') {
+        isOccupied = isOccupied || 
+                     checkOccupied(hoverTile.c - 1, hoverTile.r) || 
+                     checkOccupied(hoverTile.c, hoverTile.r - 1) || 
+                     checkOccupied(hoverTile.c - 1, hoverTile.r - 1);
+      }
 
       if (isTerrainValid && !isOccupied) {
         onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hoverTile.c, hoverTile.r));
@@ -182,26 +233,23 @@ const TownView = ({
       });
 
       if (clickedBuilding) {
-        // Check adjacency (within 1 tile including diagonals)
-        const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
-        const distC = Math.abs(playerGrid.c - hoverTile.c);
-        const distR = Math.abs(playerGrid.r - hoverTile.r);
+         if (clickedBuilding.type === 'starter-house' && isInsideHouse) {
+           interactWithBuilding(clickedBuilding.id, 'wake');
+           setSelectedBedForActionMenu(null);
+           setSelectedBedForMenu(null);
+           return;
+         }
 
-        if (distC <= 1 && distR <= 1) {
-           if (clickedBuilding.type === 'garden-bed' || clickedBuilding.type === 'garden-tree') {
-             const gs = clickedBuilding.growthState;
-             if (gs.currentLevel === 1 && !gs.produceType) {
-               setSelectedBedForMenu(clickedBuilding.id);
-               setSelectedBedForActionMenu(null);
-             } else {
-               setSelectedBedForActionMenu(clickedBuilding.id);
-               setSelectedBedForMenu(null);
-             }
-           } else if (clickedBuilding.type === 'starter-house') {
+         if (clickedBuilding.type === 'garden-bed' || clickedBuilding.type === 'garden-tree' || clickedBuilding.type === 'starter-house') {
+           const gs = clickedBuilding.growthState;
+           if (gs && gs.currentLevel === 1 && !gs.produceType) {
+             setSelectedBedForMenu(clickedBuilding.id);
+             setSelectedBedForActionMenu(null);
+           } else {
              setSelectedBedForActionMenu(clickedBuilding.id);
              setSelectedBedForMenu(null);
            }
-        }
+         }
       }
     }
   };
@@ -233,7 +281,7 @@ const TownView = ({
   return (
     <div 
       className="relative w-full h-full overflow-hidden bg-[#000b14]"
-      style={{ imageRendering: 'pixelated' }}
+      style={{ imageRendering: 'pixelated', contain: 'paint' }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       onWheel={handleWheel}
@@ -262,26 +310,78 @@ const TownView = ({
             {ISLAND_MAP.map((row, r) => row.map((type, c) => {
               const isGrass = type === TILE_TYPES.GRASS;
               const isSand = type === TILE_TYPES.SAND;
-              const isWater = type === TILE_TYPES.WATER;
+              
+              // Jitter for organic feel
+              const jitter = ((Math.sin(r * 11 + c * 7) * 43758.5453) % 1) * 3;
+
+              // Helper for neighbors (treat out of bounds as Water)
+              const getType = (rr: number, cc: number) => {
+                if (rr < 0 || rr >= GRID_SIZE || cc < 0 || cc >= GRID_SIZE) return TILE_TYPES.WATER;
+                return ISLAND_MAP[rr][cc];
+              };
+
+              // Masking Logic
+              // Sand Layer (renders if Sand or Grass)
+              const showSand = isSand || isGrass;
+              const sandRadius = (dr: number, dc: number) => {
+                 const t = getType(r + dr, c);
+                 const s = getType(r, c + dc);
+                 // If both neighbors are Water, round this corner
+                 return (t === TILE_TYPES.WATER && s === TILE_TYPES.WATER) ? `12px` : '0px';
+              };
+
+              // Grass Layer (renders if Grass)
+              const grassRadius = (dr: number, dc: number) => {
+                 const t = getType(r + dr, c);
+                 const s = getType(r, c + dc);
+                 // If both neighbors are Water OR Sand, round this corner
+                 return (t !== TILE_TYPES.GRASS && s !== TILE_TYPES.GRASS) ? `12px` : '0px';
+              };
 
               return (
                 <div 
                   key={`${c}-${r}`}
-                  className="relative overflow-visible"
-                  style={{
-                    width: TILE_SIZE,
-                    height: TILE_SIZE,
-                    backgroundColor: isWater ? '#1e88e5' : isSand ? '#d9c58d' : isGrass ? '#558b2f' : '#050a0f',
-                    backgroundImage: isGrass ? 'url("/images/grass.png")' : 'none',
-                    backgroundSize: '32px 32px', // Match TILE_SIZE for seamlessness
-                    border: 'none',
-                    outline: 'none',
-                    margin: 0,
-                    padding: 0
+                  className="relative w-full h-full border-none outline-none"
+                  style={{ 
+                    backgroundColor: '#1e88e5', // Base Water
+                    margin: '-0.5px',
+                    transform: 'scale(1.02)'
                   }}
                 >
+                  {/* Sand Layer */}
+                  {showSand && (
+                    <div 
+                      className="absolute inset-0 z-0"
+                      style={{
+                        backgroundImage: 'url("/images/sand.jpg")',
+                        backgroundSize: '32px 32px',
+                        imageRendering: 'pixelated',
+                        borderTopLeftRadius: sandRadius(-1, -1),
+                        borderTopRightRadius: sandRadius(-1, 1),
+                        borderBottomLeftRadius: sandRadius(1, -1),
+                        borderBottomRightRadius: sandRadius(1, 1),
+                      }}
+                    />
+                  )}
+
+                  {/* Grass Layer */}
+                  {isGrass && (
+                    <div 
+                      className="absolute inset-0 z-10"
+                      style={{
+                        backgroundImage: 'url("/images/grass texture.png")',
+                        backgroundSize: '32px 32px',
+                        imageRendering: 'pixelated',
+                        borderTopLeftRadius: grassRadius(-1, -1),
+                        borderTopRightRadius: grassRadius(-1, 1),
+                        borderBottomLeftRadius: grassRadius(1, -1),
+                        borderBottomRightRadius: grassRadius(1, 1),
+                      }}
+                    />
+                  )}
+
                   {isPlacing && (isGrass || isSand) && hoverTile?.c === c && hoverTile?.r === r && (
-                    <div className="absolute inset-0 border-2 border-green-400/80 animate-pulse z-10" />
+                    <div className="absolute inset-0 border-2 border-green-400/80 animate-pulse z-20" />
                   )}
                 </div>
               );
@@ -311,6 +411,13 @@ const TownView = ({
                   transform: 'translate(-50%, -85%) scale(1.1)',
                 }}
               />
+              
+              {/* Ready to Harvest Icon for Default Trees */}
+              {deco.type === 'default-tree' && (!treeCooldowns[deco.id] || Date.now() >= treeCooldowns[deco.id]) && (
+                  <div className="absolute top-[-40px] left-1/2 -translate-x-1/2 animate-bounce z-50">
+                      <img src="/images/tools-wood.png" className="w-4 h-4 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Wood Ready" />
+                  </div>
+              )}
             </div>
           ))}
 
@@ -339,7 +446,7 @@ const TownView = ({
                      />
                      
                      {/* Interaction Icons Above Bed/Tree */}
-                     {building.growthState.currentLevel === 3 && (
+                     {building.growthState.currentLevel === 3 && !building.growthState.isWatered && Date.now() >= (building.growthState.waterNeededAt || 0) && (
                        <div className="absolute top-0 right-0 animate-bounce">
                           <img src="/images/garden-watering-can.png" className="w-[12px] h-[12px] object-contain" alt="Needs Water" />
                        </div>
@@ -373,24 +480,73 @@ const TownView = ({
           ))}
 
           {/* Avatar Rendering */}
-          <div 
-            className="absolute transition-all duration-100 ease-linear flex items-center justify-center"
-            style={{
-              left: avatarPos.x + (GRID_SIZE * TILE_SIZE) / 2,
-              top: avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2,
-              width: TILE_SIZE,
-              height: TILE_SIZE,
-              zIndex: 100 + Math.floor(avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2)
-            }}
-          >
-            <div className="relative" style={{ transform: 'translate(-50%, -50%)' }}>
-              <PlayerSprite 
-                direction={facing as any} 
-                isWalking={isWalking} 
-                scale={1.2 * (villageZoom / 2.5)} 
-              />
-            </div>
-          </div>
+          {!isInsideHouse && (
+            <>
+              {/* Interaction Prompt for House */}
+              {(() => {
+                const house = buildings.find((b: any) => b.type === 'starter-house');
+                if (house) {
+                  const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
+                  const houseGrid = worldToGrid(house.offset.x, house.offset.y);
+                  const distC = Math.abs(playerGrid.c - houseGrid.c);
+                  const distR = Math.abs(playerGrid.r - houseGrid.r);
+                  
+                  // Near the house (adjacent tiles)
+                  if (distC <= 1 && distR <= 1) {
+                    return null;
+                  }
+                }
+                return null;
+              })()}
+
+              {/* Sleep Hours Counter Above House */}
+              {isInsideHouse && (() => {
+                const house = buildings.find((b: any) => b.type === 'starter-house');
+                if (house) {
+                  const hrs = Math.floor(minutesSlept / 60);
+                  const mins = minutesSlept % 60;
+                  return (
+                    <div 
+                      className="absolute z-[2000] pointer-events-none flex flex-col items-center gap-2"
+                      style={{
+                        left: house.offset.x + (GRID_SIZE * TILE_SIZE) / 2,
+                        top: house.offset.y + (GRID_SIZE * TILE_SIZE) / 2 - 85,
+                      }}
+                    >
+                      <div className="bg-[#fcfaf8] text-[#3e2723] text-[8px] px-3 py-2 rounded-full shadow-[0_4px_0_0_#d1c4b9] font-['Press_Start_2P'] animate-bounce border-2 border-[#d1c4b9]">
+                        {hrs}h {mins}m PASSED
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-white text-sm animate-ping delay-75">z</span>
+                        <span className="text-white text-md animate-ping delay-200">z</span>
+                        <span className="text-white text-lg animate-ping delay-500">z</span>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              <div 
+                className="absolute transition-all duration-100 ease-linear flex items-center justify-center"
+                style={{
+                  left: avatarPos.x + (GRID_SIZE * TILE_SIZE) / 2,
+                  top: avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2,
+                  width: TILE_SIZE,
+                  height: TILE_SIZE,
+                  zIndex: 100 + Math.floor(avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2)
+                }}
+              >
+                <div className="relative" style={{ transform: 'translate(-50%, -50%)' }}>
+                  <PlayerSprite 
+                    direction={facing as any} 
+                    isWalking={isWalking} 
+                    scale={1.2 * (villageZoom / 2.5)} 
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Ghost Building */}
           {isPlacing && pendingBuilding && hoverTile && (
@@ -410,14 +566,16 @@ const TownView = ({
                    ? tileType === TILE_TYPES.GRASS 
                    : (tileType === TILE_TYPES.GRASS || tileType === TILE_TYPES.SAND);
                  
-                 const isOccupied = decorations.some(d => d.r === hoverTile.r && d.c === hoverTile.c) ||
-                                    buildings.some((b: any) => {
-                                      if (b.growthState) {
-                                        return b.growthState.coordinates.x === hoverTile.c && b.growthState.coordinates.y === hoverTile.r;
-                                      }
-                                      const buildingGrid = worldToGrid(b.offset.x, b.offset.y);
-                                      return buildingGrid.c === hoverTile.c && buildingGrid.r === hoverTile.r;
-                                    });
+                 const checkOccupied = (c: number, r: number) => 
+                   allObstacles.some(ob => ob.r === r && ob.c === c);
+
+                 let isOccupied = checkOccupied(hoverTile.c, hoverTile.r);
+                 if (pendingBuilding.type === 'starter-house') {
+                   isOccupied = isOccupied || 
+                                checkOccupied(hoverTile.c - 1, hoverTile.r) || 
+                                checkOccupied(hoverTile.c, hoverTile.r - 1) || 
+                                checkOccupied(hoverTile.c - 1, hoverTile.r - 1);
+                 }
                  
                  const isValid = isTerrainValid && !isOccupied;
 
@@ -430,6 +588,15 @@ const TownView = ({
                         <img 
                           src="/images/garden-bed-wheat-1.png"
                           alt="Ghost Garden Bed"
+                          className="w-10 h-10 object-contain"
+                          style={{ 
+                            imageRendering: 'pixelated'
+                          }}
+                        />
+                      ) : pendingBuilding.type === 'garden-tree' ? (
+                        <img 
+                          src="/images/garden-apple-1.png"
+                          alt="Ghost Garden Tree"
                           className="w-10 h-10 object-contain"
                           style={{ 
                             imageRendering: 'pixelated'
@@ -460,36 +627,49 @@ const TownView = ({
 
       {/* Produce Selection Menu Overlay */}
       {selectedBedForMenu && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P']">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full border-4 border-[#3e2723] bg-[#f9f5f0]">
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
+           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0]">
+              {/* ... content ... */}
               <h3 className="text-[#3e2723] text-[12px] uppercase">CHOOSE PRODUCE</h3>
               
               <div className="grid grid-cols-1 gap-4 w-full">
-                {[
-                  { type: 'wheat', name: 'WHEAT', icon: '/images/garden-wheat.png' },
-                  { type: 'tomato', name: 'TOMATO', icon: '/images/garden-tomato.png' },
-                  { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-pumpkin.png' }
-                ].map(p => (
-                  <button
-                    key={p.type}
-                    onClick={() => {
-                      interactWithBuilding(selectedBedForMenu, 'select-produce', { produceType: p.type });
-                      setSelectedBedForMenu(null);
-                    }}
-                    className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
-                  >
-                    <img src={p.icon} alt={p.name} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
-                    <span className="text-[#3e2723] text-[10px]">{p.name}</span>
-                  </button>
-                ))}
+                {(() => {
+                  const b = buildings.find((b: any) => b.id === selectedBedForMenu);
+                  const items = b?.type === 'garden-tree'
+                    ? [
+                        { type: 'apple', name: 'APPLE', icon: '/images/garden-apple-4.png' },
+                        { type: 'peach', name: 'PEACH', icon: '/images/garden-peach-4.png' },
+                        { type: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry-4.png' }
+                      ]
+                    : [
+                        { type: 'wheat', name: 'WHEAT', icon: '/images/garden-bed-wheat-4.png' },
+                        { type: 'tomato', name: 'TOMATO', icon: '/images/garden-bed-tomato-4.png' },
+                        { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-bed-pumpkin-4.png' }
+                      ];
+                  return items.map(p => (
+                    <button
+                      key={p.type}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        interactWithBuilding(selectedBedForMenu, 'select-produce', { produceType: p.type });
+                        setSelectedBedForMenu(null);
+                      }}
+                      className="flex items-center gap-4 btn-off-white p-4 text-left"
+                    >
+                      <img src={p.icon} alt={p.name} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
+                      <span className="text-[#3e2723] text-[10px]">{p.name}</span>
+                    </button>
+                  ));
+                })()}
 
                 {/* Bin Button in selection modal */}
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     interactWithBuilding(selectedBedForMenu, 'remove');
                     setSelectedBedForMenu(null);
                   }}
-                  className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                  className="flex items-center gap-4 btn-off-white p-4 text-left"
                 >
                   <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
                   <span className="text-[#3e2723] text-[10px]">BIN (REMOVE)</span>
@@ -497,7 +677,10 @@ const TownView = ({
               </div>
 
               <button 
-                onClick={() => setSelectedBedForMenu(null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedBedForMenu(null);
+                }}
                 className="mt-2 text-[#3e2723] text-[9px] underline uppercase hover:text-[#5d4a44] transition-colors"
               >
                 CANCEL
@@ -507,8 +690,9 @@ const TownView = ({
       )}
       {/* Action Menu Overlay (Levels 2-5 and House) */}
       {selectedBedForActionMenu && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P']">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full border-4 border-[#3e2723] bg-[#f9f5f0]">
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
+           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0]">
+
               <h3 className="text-[#3e2723] text-[12px] uppercase">ACTIONS</h3>
               
               <div className="grid grid-cols-1 gap-4 w-full">
@@ -522,40 +706,28 @@ const TownView = ({
                       {/* Garden Bed or Tree Specific Actions */}
                       {(b.type === 'garden-bed' || b.type === 'garden-tree') && gs && (
                         <>
-                          {/* Level 1 Trees start with produceType but need to move to Level 2 */}
-                          {b.type === 'garden-tree' && gs.currentLevel === 1 && (
-                            <button
-                              onClick={() => {
-                                interactWithBuilding(b.id, 'select-produce', { produceType: gs.produceType });
-                                setSelectedBedForActionMenu(null);
-                              }}
-                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
-                            >
-                              <img src={`/images/garden-${gs.produceType}.png`} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Plant" />
-                              <span className="text-[#3e2723] text-[10px]">PLANT / START GROWING</span>
-                            </button>
-                          )}
-
                           {gs.currentLevel >= 2 && (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 interactWithBuilding(b.id, 'clear');
                                 setSelectedBedForActionMenu(null);
                               }}
-                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                              className="flex items-center gap-4 btn-off-white p-4 text-left"
                             >
                               <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shovel" />
                               <span className="text-[#3e2723] text-[10px]">{gs.currentLevel === 5 ? 'SHOVEL (CLEAR DEAD)' : 'SHOVEL (RESET)'}</span>
                             </button>
                           )}
 
-                          {gs.currentLevel === 3 && (
+                          {gs.currentLevel === 3 && Date.now() >= (gs.waterNeededAt || 0) && (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 interactWithBuilding(b.id, 'water');
                                 setSelectedBedForActionMenu(null);
                               }}
-                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                              className="flex items-center gap-4 btn-off-white p-4 text-left"
                             >
                               <img src="/images/garden-watering-can.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Water" />
                               <span className="text-[#3e2723] text-[10px]">WATER</span>
@@ -564,29 +736,48 @@ const TownView = ({
 
                           {gs.currentLevel === 4 && (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 interactWithBuilding(b.id, 'harvest');
                                 setSelectedBedForActionMenu(null);
                               }}
-                              className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                              className="flex items-center gap-4 btn-off-white p-4 text-left"
                             >
                               <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
-                              <span className="text-[#3e2723] text-[10px]">COLLECT</span>
+                              <span className="text-[#3e2723] text-[10px]">PICK</span>
                             </button>
                           )}
                         </>
                       )}
 
+                      {/* Starter House Specific Actions */}
+                      {b.type === 'starter-house' && (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              interactWithBuilding(b.id, 'sleep');
+                              setSelectedBedForActionMenu(null);
+                            }}
+                            className="flex items-center gap-4 btn-off-white p-4 text-left"
+                          >
+                            <div className="text-3xl">😴</div>
+                            <span className="text-[#3e2723] text-[10px]">GO TO SLEEP</span>
+                          </button>
+                        </>
+                      )}
+
                       {/* Bin (Remove) - Available for all built items */}
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           interactWithBuilding(b.id, 'remove');
                           setSelectedBedForActionMenu(null);
                         }}
-                        className="flex items-center gap-4 bg-[#f9f5f0] border-4 border-[#3e2723] p-4 hover:bg-white active:translate-y-1 transition-all text-left shadow-[0_4px_0_0_#3e2723]"
+                        className="flex items-center gap-4 btn-off-white p-4 text-left"
                       >
                         <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
-                        <span className="text-[#3e2723] text-[10px]">BIN (REMOVE)</span>
+                        <span className="text-[#3e2723] text-[10px]">{b.type === 'starter-house' ? 'DELETE HOUSE' : 'BIN (REMOVE)'}</span>
                       </button>
                     </>
                   );
@@ -594,10 +785,72 @@ const TownView = ({
               </div>
 
               <button 
-                onClick={() => setSelectedBedForActionMenu(null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedBedForActionMenu(null);
+                }}
                 className="mt-2 text-[#3e2723] text-[9px] underline uppercase hover:text-[#5d4a44] transition-colors"
               >
                 CANCEL
+              </button>
+           </div>
+        </div>
+      )}
+
+      {/* Tree Collection Confirmation Modal */}
+      {confirmTreeCollect && (
+        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+           <div className="p-8 flex flex-col items-center gap-6 max-w-[300px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl">
+              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">COLLECT WOOD?</h3>
+              <div className="flex gap-4 w-full justify-center">
+                  <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        interactWithBuilding(confirmTreeCollect, 'collect-default-wood');
+                        setConfirmTreeCollect(null);
+                    }}
+                    className="btn-off-white px-6 py-3 text-[10px] flex-1"
+                  >
+                    YES
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmTreeCollect(null);
+                    }}
+                    className="btn-off-white px-6 py-3 text-[10px] flex-1"
+                  >
+                    NO
+                  </button>
+              </div>
+           </div>
+        </div>
+      )}
+      {/* Sleeping Overlay */}
+      {isInsideHouse && (
+        <div className="fixed inset-0 z-[6000] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md pointer-events-auto font-['Press_Start_2P'] animate-[fade-in_0.5s_ease-out]">
+           <div className="p-12 flex flex-col items-center gap-10 bg-[#fcfaf8] rounded-3xl shadow-[0_16px_0_0_#d1c4b9] border-8 border-[#8d6e63]">
+              <div className="text-8xl animate-bounce">😴</div>
+              <div className="flex flex-col items-center gap-6">
+                <h2 className="text-[#3e2723] text-2xl animate-pulse">SLEEPING...</h2>
+                <div className="bg-[#3e2723] text-white px-6 py-3 rounded-xl text-[14px]">
+                  {Math.floor(minutesSlept / 60)}h {minutesSlept % 60}m ELAPSED
+                </div>
+                <p className="text-[#8b7a6d] text-[10px] text-center max-w-[240px] leading-loose opacity-70">
+                  TIME FLOWS FAST (1s = 1m)
+                </p>
+              </div>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const house = buildings.find((b: any) => b.id.includes('house')); // Flexible search
+                  const h = house || buildings.find((b: any) => b.type === 'starter-house');
+                  if (h) interactWithBuilding(h.id, 'wake');
+                }}
+                className="btn-off-white px-10 py-5 text-[14px] font-bold shadow-xl active:translate-y-1 active:shadow-none transition-all"
+              >
+                WAKE UP
               </button>
            </div>
         </div>

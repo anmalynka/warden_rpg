@@ -19,14 +19,37 @@ export const useGameState = () => {
   const [totalDistanceWalked, setTotalDistanceWalked] = useState(0);
   const [avatarPos, setAvatarPos] = useState({ x: 8, y: 8 }); // Offset from center to avoid obstacles
   const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
+  const [isInsideHouse, setIsInsideHouse] = useState(false);
+  const [lastSleepTick, setLastSleepTick] = useState<number | null>(null);
+  const [minutesSlept, setMinutesSlept] = useState(0);
+  
+  // XP & Leveling
+  const [level, setLevel] = useState(1);
+  const [xp, setXp] = useState(0);
+  const XP_TO_NEXT_LEVEL = level * 100;
+
+  // Inventory
+  const [inventory, setInventory] = useState<{[key: string]: number}>({
+    wheat: 0,
+    tomato: 0,
+    pumpkin: 0,
+    wood: 0,
+    apple: 0,
+    peach: 0,
+    cherry: 0
+  });
+
+  // Default Tree Cooldowns (Key: "c,r", Value: timestamp when ready)
+  const [treeCooldowns, setTreeCooldowns] = useState<{[key: string]: number}>({});
 
   // 2. ALL USECALLBACK AFTER USESTATE
   const moveAvatar = useCallback((dx: number, dy: number) => {
+    if (isInsideHouse) return; // Cannot move while inside
     setAvatarPos((prev: any) => ({
       x: prev.x + dx,
       y: prev.y + dy
     }));
-  }, []);
+  }, [isInsideHouse]);
 
   const addWalkDistance = useCallback((meters: number) => {
     setTotalDistanceWalked((prev: number) => {
@@ -110,6 +133,16 @@ export const useGameState = () => {
   }, []);
 
   const interactWithBuilding = useCallback((id: string, action: string, data?: any) => {
+    // Handle Default Trees (Coordinate ID)
+    if (id.startsWith('tree-') && action === 'collect-default-wood') {
+      const cooldown = treeCooldowns[id] || 0;
+      if (Date.now() >= cooldown) {
+        setInventory(prev => ({ ...prev, wood: (prev.wood || 0) + 1 }));
+        setTreeCooldowns(prev => ({ ...prev, [id]: Date.now() + 43200000 })); // 12 hours
+      }
+      return;
+    }
+
     setBuildings(prev => prev.map(b => {
       if (b.id !== id) return b;
       const gs = b.growthState;
@@ -130,7 +163,14 @@ export const useGameState = () => {
           };
         case 'water':
           // Watering moves from level 3 to state that will become 4 in 2 min
-          if (gs.currentLevel === 3) {
+          if (gs.currentLevel === 3 && Date.now() >= (gs.waterNeededAt || 0)) {
+            // Award XP
+            setXp(x => {
+                const next = x + 5;
+                if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                return next;
+            });
+            
             return {
               ...b,
               growthState: {
@@ -144,13 +184,38 @@ export const useGameState = () => {
           break;
         case 'harvest':
           if (gs.currentLevel === 4) {
+            // Award XP
+            setXp(x => {
+                const next = x + 10;
+                if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                return next;
+            });
+            // Add Inventory
+            const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
+            setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
+            
             setResources((r: any) => ({ ...r, coins: r.coins + 20 })); 
+            
+            // Revert to level 3 for trees, level 1 for beds
+            if (b.type === 'garden-tree') {
+                return {
+                  ...b,
+                  growthState: {
+                    ...gs,
+                    currentLevel: 3,
+                    isWatered: false,
+                    waterNeededAt: now + 300000, // 5 min
+                    lastUpdate: now
+                  }
+                };
+            }
+
             // Revert to level 1 (empty state)
             return {
               ...b,
               growthState: {
                 ...gs,
-                produceType: b.type === 'garden-tree' ? gs.produceType : null,
+                produceType: null,
                 currentLevel: 1,
                 isWatered: false,
                 startTime: now,
@@ -161,6 +226,15 @@ export const useGameState = () => {
           break;
         case 'clear':
           if (gs.currentLevel >= 2) {
+            // Award XP for clearing dead plants
+            if (gs.currentLevel === 5) {
+                setXp(x => {
+                    const next = x + 20;
+                    if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                    return next;
+                });
+            }
+
             return {
               ...b,
               growthState: {
@@ -176,68 +250,107 @@ export const useGameState = () => {
           break;
         case 'remove':
           return null;
+        case 'sleep':
+          setIsInsideHouse(true);
+          setLastSleepTick(Date.now());
+          setMinutesSlept(0);
+          return b;
+        case 'wake':
+          setIsInsideHouse(false);
+          setLastSleepTick(null);
+          setMinutesSlept(0);
+          return b;
       }
       return b;
     }).filter(Boolean));
-  }, [setResources]);
+  }, [setResources, setIsInsideHouse, level, treeCooldowns]);
+
+  // Handle Accelerated Time (Sleeping)
+  useEffect(() => {
+    if (!isInsideHouse || !lastSleepTick) return;
+
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const bonusTime = 60000; // 1 real second = 1 minute (60,000ms) bonus growth
+      
+      setMinutesSlept(prev => prev + 1);
+
+      setBuildings(prev => prev.map(b => {
+        if ((b.type === 'garden-bed' || b.type === 'garden-tree') && b.growthState) {
+          const gs = b.growthState;
+          if (gs.currentLevel === 5 || !gs.produceType) return b;
+          
+          // Advance startTime so it grows faster
+          // We move the startTime backwards so Date.now() - gs.startTime is larger
+          return {
+            ...b,
+            growthState: {
+              ...gs,
+              startTime: gs.startTime - bonusTime,
+              // Also adjust wateredAt and harvestReadyAt if they exist
+              wateredAt: gs.wateredAt ? gs.wateredAt - bonusTime : gs.wateredAt,
+              harvestReadyAt: gs.harvestReadyAt ? gs.harvestReadyAt - bonusTime : gs.harvestReadyAt,
+              waterNeededAt: gs.waterNeededAt ? gs.waterNeededAt - bonusTime : gs.waterNeededAt,
+              lastUpdate: now
+            }
+          };
+        }
+        return b;
+      }));
+      setLastSleepTick(now);
+    }, 1000); // Check every second for bonus growth
+
+    return () => clearInterval(interval);
+  }, [isInsideHouse, lastSleepTick]);
 
   const addBuilding = useCallback((type: string, cost: any, position: any = null) => {
-    // We need to check resources and update them together
+    // Level Checks
+    if (type === 'garden-bed' && level < 1) return null;
+    if (type === 'garden-tree' && level < 3) return null;
+    if (type === 'starter-house' && level < 5) return null;
+
+    const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (resources[res] || 0) >= amount);
+    if (!canAfford) return null;
+
+    const newId = `building-${Date.now()}`;
+
+    // Deduct resources
     setResources((prev: any) => {
-      const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (prev[res] || 0) >= amount);
-      if (canAfford) {
-        const nextResources = { ...prev };
-        Object.entries(cost).forEach(([res, amount]: [string, any]) => {
-          nextResources[res] -= amount;
-        });
-        return nextResources;
-      }
-      return prev;
+      const nextResources = { ...prev };
+      Object.entries(cost).forEach(([res, amount]: [string, any]) => {
+        nextResources[res] -= amount;
+      });
+      return nextResources;
     });
 
     setBuildings((prevBuildings: any[]) => {
-      // Re-check resources using the current state in the closure
-      const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (resources[res] || 0) >= amount);
+      const offset = position || { 
+        x: (Math.random() - 0.5) * 300, 
+        y: (Math.random() - 0.5) * 300 
+      };
       
-      if (canAfford) {
-        const newId = `building-${Date.now()}`;
-        const offset = position || { 
-          x: (Math.random() - 0.5) * 300, 
-          y: (Math.random() - 0.5) * 300 
+      const newBuilding: any = { id: newId, type, offset };
+      
+      if (type === 'garden-bed' || type === 'garden-tree') {
+        const gridX = Math.floor((offset.x + (20 * 32) / 2) / 32);
+        const gridY = Math.floor((offset.y + (20 * 32) / 2) / 32);
+        
+        newBuilding.growthState = {
+          id: newId,
+          coordinates: { x: gridX, y: gridY },
+          produceType: null,
+          currentLevel: 1,
+          startTime: Date.now(),
+          lastUpdate: Date.now(),
+          isWatered: false
         };
-        
-        const newBuilding: any = { id: newId, type, offset };
-        
-        if (type === 'garden-bed' || type === 'garden-tree') {
-          // Calculate grid coordinates from position (world coordinates)
-          const gridX = Math.floor((offset.x + (20 * 32) / 2) / 32);
-          const gridY = Math.floor((offset.y + (20 * 32) / 2) / 32);
-          
-          let produceType = null;
-          if (type === 'garden-tree') {
-             if (cost.isApple) produceType = 'apple';
-             if (cost.isPeach) produceType = 'peach';
-             if (cost.isCherry) produceType = 'cherry';
-          }
-
-          newBuilding.growthState = {
-            id: newId,
-            coordinates: { x: gridX, y: gridY },
-            produceType: produceType,
-            currentLevel: 1, // Start at level 1
-            startTime: Date.now(),
-            lastUpdate: Date.now(),
-            isWatered: false
-          };
-        }
-        
-        return [...prevBuildings, newBuilding];
       }
-      return prevBuildings;
+      
+      return [...prevBuildings, newBuilding];
     });
 
-    return true;
-  }, [resources, setResources, setBuildings]);
+    return newId;
+  }, [resources, setResources, setBuildings, level]);
 
   // 3. ALL USEEFFECT AT THE BOTTOM
   // Persistence
@@ -337,8 +450,16 @@ export const useGameState = () => {
     moveAvatar,
     villageZoom,
     setVillageZoom,
+    isInsideHouse,
+    setIsInsideHouse,
+    minutesSlept,
     interactWithBuilding,
-    resetGame
+    resetGame,
+    level,
+    xp,
+    XP_TO_NEXT_LEVEL,
+    inventory,
+    treeCooldowns
   };
 };
 

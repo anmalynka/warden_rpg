@@ -1,9 +1,9 @@
 import React from 'react';
 
 const roles = [
-  { id: 'round', name: 'WARDEN OF THE CIRCLE', icon: '⭕', color: 'bg-blue-500' },
-  { id: 'triangle', name: 'TRIANGLE SENTINEL', icon: '🔺', color: 'bg-red-500' },
-  { id: 'square', name: 'SQUARE GUARDIAN', icon: '🟦', color: 'bg-green-500' }
+  { id: 'round', name: 'WARDEN OF THE CIRCLE', icon: '⭕', color: 'bg-blue-500', desc: 'Protector of the cycles' },
+  { id: 'triangle', name: 'TRIANGLE SENTINEL', icon: '🔺', color: 'bg-red-500', desc: 'Guardian of the vertices' },
+  { id: 'square', name: 'SQUARE GUARDIAN', icon: '🟦', color: 'bg-green-500', desc: 'Keeper of the foundation' }
 ];
 
 const RoleSelection = ({ onSelect }) => {
@@ -16,18 +16,19 @@ const RoleSelection = ({ onSelect }) => {
       <div className="flex flex-col gap-6 w-full max-w-sm">
         {roles.map((role) => (
           <button 
-            key={role.id}
+            key={role.name}
             onClick={() => onSelect(role)}
-            className="flex items-center gap-6 bg-[#8d6e63] border-4 border-[#3e2723] p-6 hover:bg-[#a1887f] active:translate-y-1 transition-all text-left"
+            className="flex items-center gap-6 btn-off-white p-6 transition-all text-left group"
           >
-            <div className={`w-12 h-12 ${role.color} flex items-center justify-center border-2 border-[#3e2723] shadow-lg`}>
-               <span className="text-2xl">{role.icon}</span>
+            <div className={`w-12 h-12 ${role.color} flex items-center justify-center border-2 border-[#f1ebe3] shadow-inner group-hover:scale-110 transition-transform`}>
+              <span className="text-3xl">{role.icon}</span>
             </div>
             <div className="flex flex-col gap-1">
-               <span className="text-white text-[10px] leading-tight">{role.name}</span>
-               <span className="text-[#3e2723] text-[8px]">SELECT ROLE</span>
+              <div className="text-[#3e2723] text-[12px] font-bold">{role.name}</div>
+              <div className="text-[#8b7a6d] text-[8px] uppercase">{role.desc}</div>
             </div>
           </button>
+
         ))}
       </div>
     </div>

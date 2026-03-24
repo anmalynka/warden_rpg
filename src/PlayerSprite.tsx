@@ -24,40 +24,38 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale
   const sheetHeight = 128;
 
   return (
-    <div className="player-sprite-container pixel-art" style={{ 
+    <div className="player-sprite-container" style={{ 
       width: `${frameSize}px`, 
       height: `${frameSize}px`,
       transform: `scale(${finalScale})`,
-      transformOrigin: 'center center'
+      transformOrigin: 'center center',
+      overflow: 'hidden',
+      position: 'relative'
     }}>
       <style>{`
-        .player-sprite-container {
-          overflow: hidden;
-          position: relative;
+        @keyframes walk-anim-steps {
+          from { background-position-x: 0px; }
+          to { background-position-x: -${sheetWidth}px; }
         }
-
-        .cat-sprite {
+        .cat-sprite-sheet {
           width: ${sheetWidth}px;
           height: ${sheetHeight}px;
           background-image: url('/images/grey-cat.png');
           background-repeat: no-repeat;
           position: absolute;
+          image-rendering: pixelated;
+          image-rendering: crisp-edges;
         }
-
-        .cat-walking {
-          animation: walk-loop 0.8s steps(6) infinite;
-        }
-
-        @keyframes walk-loop {
-          from { background-position-x: 0px; }
-          to { background-position-x: -${sheetWidth}px; }
+        .cat-walking-active {
+          animation: walk-anim-steps 0.8s steps(6) infinite;
         }
       `}</style>
       <div 
-        className={`cat-sprite ${isWalking ? 'cat-walking' : ''}`}
+        className={`cat-sprite-sheet ${isWalking ? 'cat-walking-active' : ''}`}
         style={{
-          backgroundPositionX: '0px',
-          backgroundPositionY: `-${row * frameSize}px`
+          backgroundPositionY: `-${row * frameSize}px`,
+          left: 0,
+          top: 0
         }}
       />
     </div>
