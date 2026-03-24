@@ -1,8 +1,18 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as turf from '@turf/turf';
+import { generateIslandMap, TILE_TYPES, GRID_SIZE } from './MapConstants';
 
 export const useGameState = () => {
   // 1. ALL USESTATE AT THE TOP
+  const [islandMap, setIslandMap] = useState<number[][]>(() => {
+    const saved = localStorage.getItem('warden_map');
+    return saved ? JSON.parse(saved) : generateIslandMap();
+  });
+  const [expansionCost, setExpansionCost] = useState(() => {
+    const saved = localStorage.getItem('warden_expansion_cost');
+    return saved ? parseInt(saved) : 500;
+  });
+
   const [resources, setResources] = useState(() => {
     const saved = localStorage.getItem('warden_resources');
     return saved ? JSON.parse(saved) : {
@@ -67,22 +77,14 @@ export const useGameState = () => {
   // 2. ALL USECALLBACK AFTER USESTATE
   
   // BFS Pathfinding Utility
-  const findPath = useCallback((start: {c: number, r: number}, end: {c: number, r: number}, obstacles: any[]) => {
+  const findPath = useCallback((start: {c: number, r: number}, end: {c: number, r: number}, currentIslandMap: number[][]) => {
     if (start.c === end.c && start.r === end.r) return [];
     
-    // Convert obstacles to a set for fast lookup
-    const obstacleSet = new Set();
-    obstacles.forEach(ob => {
-      if (ob.isMultiTile) {
-        ob.tiles.forEach((t: any) => obstacleSet.add(`${t.c},${t.r}`));
-      } else {
-        obstacleSet.add(`${ob.c},${ob.r}`);
-      }
-    });
+    // Grid bounds
+    const gridLimit = GRID_SIZE;
 
     const queue: any[] = [[start]];
     const visited = new Set([`${start.c},${start.r}`]);
-    const gridLimit = 20; // GRID_SIZE
 
     while (queue.length > 0) {
       const path = queue.shift();
@@ -101,11 +103,11 @@ export const useGameState = () => {
 
       for (const next of neighbors) {
         const key = `${next.c},${next.r}`;
-        // Bounds check & Water check (using a simpler logic or passing map)
-        // For simplicity, we assume walkable if not in obstacleSet and within bounds
-        // In a real scenario, we'd check ISLAND_MAP[next.r][next.c] for WATER (1)
-        if (next.c >= 0 && next.c < gridLimit && next.r >= 0 && next.r < gridLimit && 
-            !obstacleSet.has(key) && !visited.has(key)) {
+        // Bounds check & Water check
+        const isWalkable = next.c >= 0 && next.c < gridLimit && next.r >= 0 && next.r < gridLimit && 
+                           (currentIslandMap[next.r][next.c] === TILE_TYPES.GRASS || currentIslandMap[next.r][next.c] === TILE_TYPES.SAND);
+        
+        if (isWalkable && !visited.has(key)) {
           visited.add(key);
           queue.push([...path, next]);
         }
@@ -135,6 +137,99 @@ export const useGameState = () => {
       return newTotal;
     });
   }, []);
+
+  const expandLand = useCallback((startC: number, startR: number) => {
+    if ((resources.coins || 0) < expansionCost) return false;
+
+    // Deduct cost
+    setResources((prev: any) => ({ ...prev, coins: (prev.coins || 0) - expansionCost }));
+    
+    // Increase cost
+    setExpansionCost(prev => prev + 250);
+
+    // Award XP
+    setXp(x => {
+        const threshold = level * 20;
+        const next = x + 40;
+        if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
+        return next;
+    });
+
+    setIslandMap(prevMap => {
+      const newMap = prevMap.map(row => [...row]);
+      
+      // 1. Identify 8 tiles to convert to GRASS (Blob Growth)
+      // Start with clicked tile
+      const tilesToConvert: {c: number, r: number}[] = [{c: startC, r: startR}];
+      const visited = new Set([`${startC},${startR}`]);
+      
+      // Simple BFS to find 7 more neighbors (SAND or WATER)
+      const queue = [{c: startC, r: startR}];
+      
+      while (queue.length > 0 && tilesToConvert.length < 8) {
+        const curr = queue.shift()!;
+        const neighbors = [
+          { c: curr.c + 1, r: curr.r }, { c: curr.c - 1, r: curr.r },
+          { c: curr.c, r: curr.r + 1 }, { c: curr.c, r: curr.r - 1 }
+        ];
+
+        for (const n of neighbors) {
+          if (n.c >= 0 && n.c < GRID_SIZE && n.r >= 0 && n.r < GRID_SIZE) {
+             const key = `${n.c},${n.r}`;
+             if (!visited.has(key)) {
+               // Prefer SAND then WATER, or just any valid expansion target
+               const type = newMap[n.r][n.c];
+               if (type === TILE_TYPES.SAND || type === TILE_TYPES.WATER) {
+                 visited.add(key);
+                 tilesToConvert.push(n);
+                 queue.push(n);
+                 if (tilesToConvert.length >= 8) break;
+               }
+             }
+          }
+        }
+      }
+
+      // Connectivity Check (Simplified: We assume expansion from existing land is connected)
+      // Convert to GRASS
+      tilesToConvert.forEach(t => {
+        newMap[t.r][t.c] = TILE_TYPES.GRASS;
+      });
+
+      // 2. Dynamic Beach Generation
+      // For every new grass tile touching water, convert 0-3 adjacent water to SAND
+      tilesToConvert.forEach(t => {
+        const neighbors = [
+          { c: t.c + 1, r: t.r }, { c: t.c - 1, r: t.r },
+          { c: t.c, r: t.r + 1 }, { c: t.c, r: t.r - 1 }
+        ];
+        
+        // Find adjacent water tiles
+        const waterNeighbors = neighbors.filter(n => 
+          n.c >= 0 && n.c < GRID_SIZE && n.r >= 0 && n.r < GRID_SIZE && 
+          newMap[n.r][n.c] === TILE_TYPES.WATER
+        );
+
+        if (waterNeighbors.length > 0) {
+           // Convert 0 to 3 of them to SAND
+           const count = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
+           // Shuffle to pick random ones
+           const shuffled = waterNeighbors.sort(() => 0.5 - Math.random());
+           
+           for (let i = 0; i < Math.min(count, shuffled.length); i++) {
+             const n = shuffled[i];
+             // Ensure we only convert WATER to SAND on the "outside"
+             // This is naturally handled by only selecting WATER neighbors
+             newMap[n.r][n.c] = TILE_TYPES.SAND;
+           }
+        }
+      });
+
+      return newMap;
+    });
+
+    return true;
+  }, [resources, expansionCost, level]);
 
   const spawnResourcesInArea = useCallback((centerPos: [number, number], radiusMeters: number, count: number) => {
     const types = ['wood', 'metal', 'coins'];
@@ -340,84 +435,157 @@ export const useGameState = () => {
     }).filter(Boolean));
   }, [setResources, setIsInsideHouse, level, treeCooldowns]);
 
-  // Hotel Passive Income & NPC Automation
+  // NPC Behavior & Lifecycle
   useEffect(() => {
-    const hotelInterval = setInterval(() => {
-      if (buildings.some(b => b.type === 'hotel')) {
-        setResources(prev => ({ ...prev, coins: (prev.coins || 0) + 5 }));
-      }
-    }, 60000); // 60s
-
     const npcInterval = setInterval(() => {
-      if (!buildings.some(b => b.type === 'mini-house')) return;
-
-      setBuildings(prev => {
+      const now = Date.now();
+      
+      // 1. Spawning Logic
+      setNpcs(prevNpcs => {
+        let updatedNpcs = [...prevNpcs];
         let changed = false;
-        const now = Date.now();
-        const next = prev.map(b => {
-          if (!b.growthState) return b;
-          const gs = b.growthState;
 
-          // NPC Waters Stage 3
-          if (gs.currentLevel === 3 && !gs.isWatered && Date.now() >= (gs.waterNeededAt || 0)) {
-             changed = true;
-             return {
-               ...b,
-               growthState: {
-                 ...gs,
-                 isWatered: true,
-                 wateredAt: now,
-                 lastUpdate: now
-               }
-             };
+        // Sync Workers with Mini-Houses
+        const miniHouses = buildings.filter(b => b.type === 'mini-house');
+        miniHouses.forEach(mh => {
+          const hasWorker = updatedNpcs.some(n => n.type === 'worker' && n.homeId === mh.id);
+          if (!hasWorker) {
+            const gridX = Math.floor((mh.offset.x + (GRID_SIZE * 32) / 2) / 32);
+            const gridY = Math.floor((mh.offset.y + (GRID_SIZE * 32) / 2) / 32);
+            updatedNpcs.push({
+              id: `worker-${mh.id}`,
+              type: 'worker',
+              char: 'racoon',
+              homeId: mh.id,
+              c: gridX,
+              r: gridY,
+              targetC: gridX,
+              targetR: gridY,
+              path: [],
+              status: 'idle',
+              lastAction: now
+            });
+            changed = true;
           }
-
-          // NPC Harvests Stage 4
-          if (gs.currentLevel === 4) {
-             changed = true;
-             const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
-             
-             // Directly add to inventory/resources without full harvest logic duplication 
-             // (Ideally refactor harvest logic to a helper, but for now inline is safe)
-             setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
-             setResources(r => ({ ...r, coins: (r.coins || 0) + 20 }));
-             
-             // Revert logic
-             if (b.type === 'garden-tree') {
-                return {
-                  ...b,
-                  growthState: {
-                    ...gs,
-                    currentLevel: 3,
-                    isWatered: false,
-                    waterNeededAt: now + 300000,
-                    lastUpdate: now
-                  }
-                };
-             }
-             return {
-               ...b,
-               growthState: {
-                 ...gs,
-                 produceType: null,
-                 currentLevel: 1,
-                 isWatered: false,
-                 startTime: now,
-                 lastUpdate: now
-               }
-             };
-          }
-          return b;
         });
-        return changed ? next : prev;
-      });
-    }, 5000); // Check every 5s
 
-    return () => {
-      clearInterval(hotelInterval);
-      clearInterval(npcInterval);
-    };
-  }, [buildings]);
+        // Spawn Vacationers (every 2-5 mins)
+        const lastVacSpawn = (window as any).lastVacSpawn || 0;
+        const hotels = buildings.filter(b => b.type === 'hotel');
+        if (now - lastVacSpawn > (2 + Math.random() * 3) * 60000 && hotels.length > 0) {
+          const availableHotel = hotels.find(h => !updatedNpcs.some(n => n.targetHotelId === h.id));
+          if (availableHotel) {
+            (window as any).lastVacSpawn = now;
+            // Spawn at random edge
+            const edge = Math.floor(Math.random() * 4);
+            let sc = 0, sr = 0;
+            if (edge === 0) { sc = Math.floor(Math.random() * GRID_SIZE); sr = 0; }
+            else if (edge === 1) { sc = Math.floor(Math.random() * GRID_SIZE); sr = GRID_SIZE - 1; }
+            else if (edge === 2) { sc = 0; sr = Math.floor(Math.random() * GRID_SIZE); }
+            else { sc = GRID_SIZE - 1; sr = Math.floor(Math.random() * GRID_SIZE); }
+
+            updatedNpcs.push({
+              id: `vac-${now}`,
+              type: 'vacationer',
+              char: 'fox',
+              c: sc,
+              r: sr,
+              targetHotelId: availableHotel.id,
+              status: 'arriving',
+              path: [],
+              stayUntil: now + (3 + Math.random() * 7) * 60000,
+              lastPayment: now
+            });
+            changed = true;
+          }
+        }
+
+        // 2. Movement & Task Logic
+        updatedNpcs = updatedNpcs.map(npc => {
+          // Movement step (1 tile per 0.5s)
+          if (now - (npc.lastMove || 0) > 500) {
+            if (npc.path && npc.path.length > 0) {
+              const next = npc.path[0];
+              return { ...npc, c: next.c, r: next.r, path: npc.path.slice(1), lastMove: now, facing: next.c > npc.c ? 'right' : next.c < npc.c ? 'left' : next.r > npc.r ? 'down' : 'up' };
+            }
+          }
+
+          if (npc.type === 'worker') {
+            const home = buildings.find(b => b.id === npc.homeId);
+            const homeGrid = home ? { c: Math.floor((home.offset.x + (GRID_SIZE * 32) / 2) / 32), r: Math.floor((home.offset.y + (GRID_SIZE * 32) / 2) / 32) } : null;
+
+            if (npc.status === 'idle') {
+               // Look for work
+               const targets = buildings.filter(b => b.growthState && (b.growthState.currentLevel === 3 && !b.growthState.isWatered && Date.now() >= (b.growthState.waterNeededAt || 0) || b.growthState.currentLevel === 4 || b.growthState.currentLevel === 5));
+               if (targets.length > 0) {
+                 const target = targets[0];
+                 const targetGrid = target.growthState.coordinates;
+                 // Path to neighbor of target
+                 const path = findPath({c: npc.c, r: npc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap);
+                 if (path) {
+                    return { ...npc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
+                 }
+               } else if (homeGrid && (npc.c !== homeGrid.c || npc.r !== homeGrid.r) && npc.path.length === 0) {
+                 const path = findPath({c: npc.c, r: npc.r}, homeGrid, islandMap);
+                 if (path) return { ...npc, path };
+               }
+            } else if (npc.status === 'moving_to_work' && npc.path.length === 0) {
+               return { ...npc, status: 'working', lastAction: now };
+            } else if (npc.status === 'working' && now - npc.lastAction > 3000) {
+               const target = buildings.find(b => b.id === npc.targetId);
+               if (target && target.growthState) {
+                  if (target.growthState.currentLevel === 3) interactWithBuilding(target.id, 'water');
+                  else if (target.growthState.currentLevel === 4) interactWithBuilding(target.id, 'harvest');
+                  else if (target.growthState.currentLevel === 5) interactWithBuilding(target.id, 'clear');
+               }
+               return { ...npc, status: 'idle', targetId: null };
+            }
+          }
+
+          if (npc.type === 'vacationer') {
+            if (npc.status === 'arriving') {
+              const hotel = buildings.find(b => b.id === npc.targetHotelId);
+              if (hotel) {
+                const hotelGrid = { c: Math.floor((hotel.offset.x + (GRID_SIZE * 32) / 2) / 32), r: Math.floor((hotel.offset.y + (GRID_SIZE * 32) / 2) / 32) };
+                if (npc.c === hotelGrid.c && npc.r === hotelGrid.r) {
+                  return { ...npc, status: 'staying' };
+                } else if (npc.path.length === 0) {
+                  const path = findPath({c: npc.c, r: npc.r}, hotelGrid, islandMap);
+                  if (path) return { ...npc, path };
+                }
+              } else {
+                 return { ...npc, status: 'leaving', path: [] }; // Hotel deleted
+              }
+            } else if (npc.status === 'staying') {
+              if (now >= npc.stayUntil) {
+                return { ...npc, status: 'leaving', path: [] };
+              }
+              // Payment logic
+              if (now - npc.lastPayment >= 60000) {
+                setResources(r => ({ ...r, coins: (r.coins || 0) + 5 }));
+                return { ...npc, lastPayment: now };
+              }
+            } else if (npc.status === 'leaving') {
+               if (npc.path.length === 0) {
+                 const edge = { c: 0, r: 0 }; // Exit at top-left for simplicity
+                 const path = findPath({c: npc.c, r: npc.r}, edge, islandMap);
+                 if (path) return { ...npc, path };
+                 else return null; // Disappear if no path
+               } else if (npc.path.length === 0 && (npc.c === 0 && npc.r === 0)) {
+                 return null;
+               }
+            }
+          }
+
+          return npc;
+        }).filter(Boolean);
+
+        return changed || JSON.stringify(updatedNpcs) !== JSON.stringify(prevNpcs) ? updatedNpcs : prevNpcs;
+      });
+    }, 500); // 0.5s tick
+
+    return () => clearInterval(npcInterval);
+  }, [buildings, islandMap, findPath, interactWithBuilding]);
 
   // Handle Accelerated Time (Sleeping)
   useEffect(() => {
@@ -451,6 +619,20 @@ export const useGameState = () => {
         }
         return b;
       }));
+
+      // Accelerate wood regeneration on default trees/bushes
+      setTreeCooldowns(prev => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach(key => {
+          if (next[key] > now) {
+            next[key] -= bonusTime;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
+
       setLastSleepTick(now);
     }, 1000); // Check every second for bonus growth
 
@@ -540,6 +722,18 @@ export const useGameState = () => {
   useEffect(() => {
     localStorage.setItem('warden_territory', JSON.stringify(exploredTerritory));
   }, [exploredTerritory]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_map', JSON.stringify(islandMap));
+  }, [islandMap]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_expansion_cost', JSON.stringify(expansionCost));
+  }, [expansionCost]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_npcs', JSON.stringify(npcs));
+  }, [npcs]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -659,7 +853,11 @@ export const useGameState = () => {
     XP_TO_NEXT_LEVEL,
     inventory,
     setInventory,
-    treeCooldowns
+    treeCooldowns,
+    islandMap,
+    expandLand,
+    expansionCost,
+    npcs
   };
 };
 

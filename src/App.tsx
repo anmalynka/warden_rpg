@@ -39,7 +39,11 @@ function App() {
     XP_TO_NEXT_LEVEL,
     inventory,
     setInventory,
-    treeCooldowns
+    treeCooldowns,
+    islandMap,
+    expandLand,
+    expansionCost,
+    npcs
   } = useGameState();
 
   const [appState, setAppState] = useState('main'); // Default to main to skip login
@@ -493,6 +497,10 @@ function App() {
               setResources={setResources}
               inventory={inventory}
               setInventory={setInventory}
+              islandMap={islandMap}
+              expandLand={expandLand}
+              expansionCost={expansionCost}
+              npcs={npcs}
             />
 
             {/* Village UI Overlays - Bottom Left Zoom Controls */}

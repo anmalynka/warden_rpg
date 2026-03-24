@@ -26,7 +26,7 @@ export const gridToWorld = (c: number, r: number) => {
 };
 
 // Generate an organic blob-like island
-const generateIslandMap = () => {
+export const generateIslandMap = () => {
   const map = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(TILE_TYPES.WATER));
   const center = GRID_SIZE / 2;
   

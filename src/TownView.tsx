@@ -31,15 +31,23 @@ const TownView = ({
   resources,
   setResources,
   inventory,
-  setInventory
+  setInventory,
+  islandMap,
+  expandLand,
+  expansionCost,
+  npcs
   }: any) => {
   const [hoverTile, setHoverTile] = useState<{c: number, r: number} | null>(null);
   const [selectedBedForMenu, setSelectedBedForMenu] = useState<string | null>(null);
   const [selectedBedForActionMenu, setSelectedBedForActionMenu] = useState<string | null>(null);
   const [shopOpen, setShopOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(false);
+  const [expansionConfirm, setExpansionConfirm] = useState<{c: number, r: number} | null>(null);
   const touchDistRef = useRef<number | null>(null);
   const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
+  
+  // Use passed islandMap or fallback for safety
+  const currentMap = islandMap || ISLAND_MAP;
 
   const handleBuy = (item: string, cost: number, amount: number) => {
     if ((resources.coins || 0) >= cost) {
@@ -53,13 +61,23 @@ const TownView = ({
 
   const handleSell = (item: string, price: number, amount: number) => {
     if ((inventory[item] || 0) >= amount) {
+      // Find bonus wood from MarketUI logic
+      const marketItems = [
+        { id: 'wheat', price: 10, bonusWood: 3 },
+        { id: 'tomato', price: 8, bonusWood: 1 },
+        { id: 'peach', price: 10, bonusWood: 1 }
+      ];
+      const match = marketItems.find(i => i.id === item);
+      const bonusWood = (match?.bonusWood || 0) * amount;
+
       setInventory((prev: any) => ({
         ...prev,
         [item]: prev[item] - amount
       }));
       setResources((prev: any) => ({
         ...prev,
-        coins: (prev.coins || 0) + price
+        coins: (prev.coins || 0) + price,
+        wood: (prev.wood || 0) + bonusWood
       }));
     }
   };
@@ -92,7 +110,7 @@ const TownView = ({
 
     for (let r = 0; r < GRID_SIZE; r++) {
       for (let c = 0; c < GRID_SIZE; c++) {
-        if (ISLAND_MAP[r][c] === TILE_TYPES.GRASS) {
+        if (currentMap[r][c] === TILE_TYPES.GRASS) {
           const rand = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453 % 1;
           // Increased density slightly to account for trees, but tree chance is lower
           if (Math.abs(rand) < 0.15) {
@@ -173,7 +191,7 @@ const TownView = ({
         if (b.type === 'starter-house') {
            hitbox = { x: b.offset.x - 27, y: b.offset.y - 10, w: 54, h: 20 };
         } else if (b.type === 'market') {
-           hitbox = { x: b.offset.x - 30, y: b.offset.y - 12, w: 60, h: 24 };
+           hitbox = { x: b.offset.x - 30, y: b.offset.y + 4, w: 60, h: 10 };
         } else if (b.type === 'mini-house' || b.type === 'shop' || b.type === 'hotel') {
            hitbox = { x: b.offset.x - 27, y: b.offset.y - 10, w: 54, h: 20 };
         } else {
@@ -278,7 +296,7 @@ const TownView = ({
         return;
       }
 
-      const tileType = ISLAND_MAP[hoverTile.r][hoverTile.c];
+      const tileType = currentMap[hoverTile.r][hoverTile.c];
       
       // Constraint: Garden Bed only on GRASS
       if (pendingBuilding.type === 'garden-bed' && tileType !== TILE_TYPES.GRASS) {
@@ -297,7 +315,7 @@ const TownView = ({
       
       const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
       const isTerrainValid = pendingTiles.every(t => {
-        const tType = ISLAND_MAP[t.r]?.[t.c];
+        const tType = currentMap[t.r]?.[t.c];
         return pendingBuilding.type === 'garden-bed' 
           ? tType === TILE_TYPES.GRASS 
           : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
@@ -307,11 +325,23 @@ const TownView = ({
         onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hoverTile.c, hoverTile.r));
       }
     }
-    // General click on empty tiles doesn't need to do anything anymore for interaction
-    // as we added direct handlers to objects.
+
+    // Land Expansion: Click on SAND
+    if (hoverTile) {
+      const tileType = currentMap[hoverTile.r][hoverTile.c];
+      if (tileType === TILE_TYPES.SAND) {
+        // Check distance (within 2 tiles)
+        const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
+        const dist = Math.sqrt(Math.pow(playerGrid.c - hoverTile.c, 2) + Math.pow(playerGrid.r - hoverTile.r, 2));
+
+        if (dist <= 2.5) {
+           setExpansionConfirm({ c: hoverTile.c, r: hoverTile.r });
+        }
+      }
+    }
   };
 
-  // Custom Zoom Handlers
+    // Custom Zoom Handlers
   const handleWheel = (e: React.WheelEvent) => {
     const delta = e.deltaY * -0.001;
     setVillageZoom((prev: number) => Math.min(Math.max(prev + delta, 0.5), 4));
@@ -364,7 +394,7 @@ const TownView = ({
               height: GRID_SIZE * TILE_SIZE,
             }}
           >
-            {ISLAND_MAP.map((row, r) => row.map((type, c) => {
+            {currentMap.map((row, r) => row.map((type, c) => {
               const isGrass = type === TILE_TYPES.GRASS;
               const isSand = type === TILE_TYPES.SAND;
               
@@ -374,7 +404,7 @@ const TownView = ({
               // Helper for neighbors (treat out of bounds as Water)
               const getType = (rr: number, cc: number) => {
                 if (rr < 0 || rr >= GRID_SIZE || cc < 0 || cc >= GRID_SIZE) return TILE_TYPES.WATER;
-                return ISLAND_MAP[rr][cc];
+                return currentMap[rr][cc];
               };
 
               // Masking Logic
@@ -524,7 +554,7 @@ const TownView = ({
                      )}
                      {building.growthState.currentLevel === 5 && (
                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                          <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Clear Dead Plant" />
+                          <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Remove Dead Plant" />
                           <div className="text-[6px] bg-red-500 text-white px-1">DEAD</div>
                        </div>
                      )}
@@ -639,6 +669,50 @@ const TownView = ({
                   />
                 </div>
               </div>
+
+              {/* NPCs Rendering */}
+              {npcs.map(npc => {
+                const worldPos = gridToWorld(npc.c, npc.r);
+                return (
+                  <div 
+                    key={npc.id}
+                    className="absolute transition-all duration-500 ease-linear flex items-center justify-center"
+                    style={{
+                      left: worldPos.x + (GRID_SIZE * TILE_SIZE) / 2,
+                      top: worldPos.y + (GRID_SIZE * TILE_SIZE) / 2,
+                      width: TILE_SIZE,
+                      height: TILE_SIZE,
+                      zIndex: 100 + Math.floor(worldPos.y + (GRID_SIZE * TILE_SIZE) / 2)
+                    }}
+                  >
+                    <div className="relative" style={{ transform: 'translate(-50%, -85%)' }}>
+                       <div 
+                         style={{
+                           width: '32px',
+                           height: '32px',
+                           transform: `scale(${1.2 * (villageZoom / 2.5)})`,
+                           imageRendering: 'pixelated',
+                           backgroundImage: `url(/images/${npc.char === 'racoon' ? 'work-racoon.png' : 'vac-fox.png'})`,
+                           backgroundSize: '192px 128px',
+                           backgroundPositionX: (npc.path?.length > 0 || npc.status === 'working') ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` : '0px',
+                           backgroundPositionY: `-${(npc.facing === 'up' ? 3 : npc.facing === 'left' ? 1 : npc.facing === 'right' ? 2 : 0) * 32}px`,
+                           filter: 'drop-shadow(2px 2px 0px rgba(0,0,0,0.2))'
+                         }}
+                       />
+                       {npc.status === 'working' && (
+                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[8px] bg-[#3e2723] text-white px-2 py-1 rounded border border-[#e9d681] animate-pulse">
+                           WORKING...
+                         </div>
+                       )}
+                       {npc.status === 'staying' && (
+                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[8px] bg-green-600 text-white px-2 py-1 rounded border border-white animate-bounce">
+                           RESTING
+                         </div>
+                       )}
+                    </div>
+                  </div>
+                );
+              })}
             </>
           )}
 
@@ -655,7 +729,7 @@ const TownView = ({
                }}
              >
                {(() => {
-                 const tileType = ISLAND_MAP[hoverTile.r][hoverTile.c];
+                 const tileType = currentMap[hoverTile.r][hoverTile.c];
                  
                  const checkOccupied = (c: number, r: number) => 
                    allObstacles.some(ob => 
@@ -668,7 +742,7 @@ const TownView = ({
                  
                  const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
                  const isTerrainValid = pendingTiles.every(t => {
-                   const tType = ISLAND_MAP[t.r]?.[t.c];
+                   const tType = currentMap[t.r]?.[t.c];
                    return pendingBuilding.type === 'garden-bed' 
                      ? tType === TILE_TYPES.GRASS 
                      : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
@@ -681,7 +755,7 @@ const TownView = ({
                       {/* Ghost footprint highlights */}
                       {pendingTiles.map((t, idx) => {
                          const tOccupied = checkOccupied(t.c, t.r);
-                         const tType = ISLAND_MAP[t.r]?.[t.c];
+                         const tType = currentMap[t.r]?.[t.c];
                          const tTerrainValid = pendingBuilding.type === 'garden-bed' 
                             ? tType === TILE_TYPES.GRASS 
                             : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
@@ -795,7 +869,12 @@ const TownView = ({
               >
                 X
               </button>
-              <h3 className="text-[#3e2723] text-[12px] uppercase">CHOOSE PRODUCE</h3>
+              {(() => {
+                const b = buildings.find((b: any) => b.id === selectedBedForMenu);
+                if (!b) return null;
+                const title = b.type.replace('-', ' ').toUpperCase();
+                return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
+              })()}
               
               <div className="grid grid-cols-1 gap-4 w-full">
                 {(() => {
@@ -827,18 +906,7 @@ const TownView = ({
                   ));
                 })()}
 
-                {/* Bin Button in selection modal */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    interactWithBuilding(selectedBedForMenu, 'remove');
-                    setSelectedBedForMenu(null);
-                  }}
-                  className="flex items-center gap-4 btn-off-white p-4 text-left"
-                >
-                  <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
-                  <span className="text-[#3e2723] text-[10px]">BIN</span>
-                </button>
+
               </div>
            </div>
         </div>
@@ -856,7 +924,17 @@ const TownView = ({
               >
                 X
               </button>
-              <h3 className="text-[#3e2723] text-[12px] uppercase">ACTIONS</h3>
+              {(() => {
+                const b = buildings.find((b: any) => b.id === selectedBedForActionMenu);
+                if (!b) return null;
+                let title = b.type.replace('-', ' ').toUpperCase();
+                if (b.type === 'garden-bed' || b.type === 'garden-tree') {
+                  if (b.growthState?.produceType) {
+                    title = b.growthState.produceType.toUpperCase();
+                  }
+                }
+                return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
+              })()}
               
               <div className="grid grid-cols-1 gap-4 w-full">
                 {(() => {
@@ -878,8 +956,8 @@ const TownView = ({
                               }}
                               className="flex items-center gap-4 btn-off-white p-4 text-left"
                             >
-                              <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shovel" />
-                              <span className="text-[#3e2723] text-[10px]">{gs.currentLevel === 5 ? 'SHOVEL (CLEAR DEAD)' : 'SHOVEL'}</span>
+                              <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Remove" />
+                              <span className="text-[#3e2723] text-[10px]">{gs.currentLevel === 5 ? 'REMOVE (DEAD)' : 'REMOVE'}</span>
                             </button>
                           )}
 
@@ -975,24 +1053,7 @@ const TownView = ({
                          </button>
                       )}
 
-                      {/* Bin (Delete) - Available for all built items */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          interactWithBuilding(b.id, 'remove');
-                          setSelectedBedForActionMenu(null);
-                        }}
-                        className="flex items-center gap-4 btn-off-white p-4 text-left"
-                      >
-                        <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Bin" />
-                        <span className="text-[#3e2723] text-[10px]">
-                          {b.type === 'starter-house' ? 'DELETE HOUSE' : 
-                           b.type === 'mini-house' ? 'DELETE HOUSE' : 
-                           b.type === 'garden-bed' ? 'DELETE BED' : 
-                           b.type === 'garden-tree' ? 'DELETE TREE' : 
-                           `DELETE ${b.type.toUpperCase()}`}
-                        </span>
-                      </button>
+
                     </>
                   );
                 })()}
@@ -1035,7 +1096,7 @@ const TownView = ({
       {isInsideHouse && (
         <div className="fixed inset-0 z-[6000] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md pointer-events-auto font-['Press_Start_2P'] animate-[fade-in_0.5s_ease-out]">
            <div className="p-12 flex flex-col items-center gap-10 bg-[#fcfaf8] rounded-3xl shadow-[0_16px_0_0_#d1c4b9] border-8 border-[#8d6e63]">
-              <div className="text-8xl animate-bounce">😴</div>
+              <img src="/images/sleep.png" className="w-24 h-24 animate-bounce object-contain" alt="Sleeping" />
               <div className="flex flex-col items-center gap-6">
                 <h2 className="text-[#3e2723] text-2xl animate-pulse">SLEEPING...</h2>
                 <div className="bg-[#3e2723] text-white px-6 py-3 rounded-xl text-[14px]">
@@ -1067,6 +1128,82 @@ const TownView = ({
           onBuy={(item, cost, amount) => handleBuy(item, cost, amount)} 
           onClose={() => setShopOpen(false)} 
         />
+      )}
+
+      {/* Expansion Tooltip */}
+      {hoverTile && !isPlacing && !isInsideHouse && currentMap[hoverTile.r]?.[hoverTile.c] === TILE_TYPES.SAND && (
+        <div 
+          className="absolute z-[4000] pointer-events-none flex flex-col items-center justify-center transition-all duration-75"
+          style={{
+            left: gridToWorld(hoverTile.c, hoverTile.r).x + (GRID_SIZE * TILE_SIZE) / 2,
+            top: gridToWorld(hoverTile.c, hoverTile.r).y + (GRID_SIZE * TILE_SIZE) / 2 - 40,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          {(() => {
+             const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
+             const dist = Math.sqrt(Math.pow(playerGrid.c - hoverTile.c, 2) + Math.pow(playerGrid.r - hoverTile.r, 2));
+             if (dist <= 2.5) {
+               return (
+                 <div className="bg-[#3e2723] text-white px-3 py-2 rounded-lg text-[8px] font-['Press_Start_2P'] border-2 border-[#e9d681] shadow-xl animate-bounce">
+                   EXPAND ISLAND: {expansionCost}🪙
+                 </div>
+               );
+             }
+             return null;
+          })()}
+        </div>
+      )}
+
+      {/* Expansion Confirmation Modal */}
+      {expansionConfirm && (
+        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+           <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setExpansionConfirm(null);
+                }}
+                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+              >
+                X
+              </button>
+              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">EXPAND ISLAND?</h3>
+              
+              <div className="flex flex-col items-center gap-4 text-center">
+                <div className="text-[#8b7a6d] text-[8px] leading-relaxed">
+                  CONVERT SAND TO GRASS AND EXTEND THE BEACH.
+                </div>
+                <div className="flex items-center gap-2 bg-[#e6ded5] px-4 py-2 rounded-full">
+                   <span className="text-[#3e2723] text-[10px]">COST:</span>
+                   <img src="/images/tools-coins.png" className="w-4 h-4" />
+                   <span className={`text-[10px] ${(resources.coins || 0) >= expansionCost ? 'text-[#3e2723]' : 'text-red-600'}`}>
+                     {expansionCost}
+                   </span>
+                </div>
+              </div>
+
+              <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (expandLand(expansionConfirm.c, expansionConfirm.r)) {
+                      // Success
+                      setExpansionConfirm(null);
+                      // Visual pop effect could be added here if we had a dedicated effect system
+                    } else {
+                      // Fail feedback
+                      alert("Not enough coins!");
+                    }
+                }}
+                disabled={(resources.coins || 0) < expansionCost}
+                className={`w-full py-4 text-[10px] btn-off-white ${
+                   (resources.coins || 0) < expansionCost ? 'opacity-50 cursor-not-allowed grayscale' : ''
+                }`}
+              >
+                CONFIRM EXPANSION
+              </button>
+           </div>
+        </div>
       )}
 
       {/* Market UI */}

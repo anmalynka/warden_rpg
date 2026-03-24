@@ -5,7 +5,7 @@ const BottomNav = ({ activeTab, onTabChange }) => {
     { id: 'village', label: 'VILLAGE', icon: '/images/tools-village.png' },
     { id: 'warden', label: 'EXPLORE', icon: '/images/tools-map.png' },
     { id: 'backpack', label: 'BACKPACK', icon: '/images/backpack.png' },
-    { id: 'settings', label: 'SETTS', icon: '⚙️' }
+    { id: 'settings', label: 'SETTS', icon: '/images/settings.png' }
   ];
 
   return (
