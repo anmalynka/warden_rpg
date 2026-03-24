@@ -41,6 +41,28 @@ const MapComponent = ({
   const [pendingCollections, setPendingCollections] = useState<any[]>([]); // Track 3min waits
   const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
 
+  const updateMarkerToCat = (el: HTMLElement) => {
+    el.innerHTML = `
+      <div style="width: 32px; height: 32px; transform: scale(3.5); transform-origin: center center; overflow: hidden; position: relative;">
+        <style>
+          @keyframes map-cat-walk {
+            from { background-position-x: 0px; }
+            to { background-position-x: -192px; }
+          }
+        </style>
+        <div style="
+          width: 192px; height: 128px; 
+          background-image: url('/images/grey-cat.png'); 
+          background-repeat: no-repeat; 
+          position: absolute; 
+          image-rendering: pixelated; 
+          background-position-y: 0px; 
+          animation: map-cat-walk 0.8s steps(6) infinite;
+        "></div>
+      </div>
+    `;
+  };
+
   const zoom = 14.5;
 
   const assetMap: any = {
@@ -129,8 +151,18 @@ const MapComponent = ({
 
         const el = document.createElement('div');
         el.className = 'player-marker-pin';
-        el.style.fontSize = '40px';
-        el.innerHTML = '🛡️';
+        el.style.width = '64px';
+        el.style.height = '64px';
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        
+        // Initial marker content
+        if (window.isTrippingGlobal) {
+           updateMarkerToCat(el);
+        } else {
+           el.innerHTML = '<img src="/images/grey-cat-avatar.png" style="width: 100%; height: 100%; object-contain" />';
+        }
         
         const marker = new maplibregl.Marker({ element: el, draggable: true })
           .setLngLat(center)
@@ -152,6 +184,10 @@ const MapComponent = ({
         });
 
         map.on('dblclick', (e: any) => {
+          if (window.isPlacingGlobal) {
+            onPlaceBuilding(null, null, 0, 0);
+            return;
+          }
           updateGameStatePos(e.lngLat.lng, e.lngLat.lat, map, marker);
         });
 
@@ -160,20 +196,24 @@ const MapComponent = ({
         });
 
         map.on('click', (e: any) => {
-          // Since this is in an event listener, we need to check the current value of isPlacing
-          // But since the listener is created once in initMap, we'll use a window variable 
-          // or a ref for the latest isPlacing value to avoid closure issues.
           if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
-            if (window.pendingBuildingGlobal.type === 'garden-bed' || window.pendingBuildingGlobal.type === 'garden-tree') {
-              // Garden beds and trees are only for the village grid
-              return;
-            }
-            onPlaceBuilding(
-              window.pendingBuildingGlobal.type, 
-              window.pendingBuildingGlobal.cost, 
-              e.lngLat.lat, 
-              e.lngLat.lng
-            );
+            // Avoid placing on double click by checking if we are still placing
+            // MapLibre click events fire before dblclick, so we might need a small delay 
+            // or just rely on the fact that dblclick will cancel it anyway if it was the intent.
+            // Actually, to be safe, we can use a timeout.
+            setTimeout(() => {
+              if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
+                 if (window.pendingBuildingGlobal.type === 'garden-bed' || window.pendingBuildingGlobal.type === 'garden-tree') {
+                   return;
+                 }
+                 onPlaceBuilding(
+                   window.pendingBuildingGlobal.type, 
+                   window.pendingBuildingGlobal.cost, 
+                   e.lngLat.lat, 
+                   e.lngLat.lng
+                 );
+              }
+            }, 200);
           }
         });
       });
@@ -235,6 +275,16 @@ const MapComponent = ({
     window.pendingBuildingGlobal = pendingBuilding;
     const map = mapRef.current;
     if (!map || !mapReady || !map.isStyleLoaded()) return;
+
+    // Update Player Marker Icon
+    if (markerRef.current) {
+      const el = markerRef.current.getElement();
+      if (isTripping) {
+        updateMarkerToCat(el);
+      } else {
+        el.innerHTML = '<img src="/images/grey-cat-avatar.png" style="width: 100%; height: 100%; object-contain" />';
+      }
+    }
     
     // Get road layers to make them prominent
     const roadLayers = map.getStyle().layers.filter((l: any) => 
@@ -282,7 +332,6 @@ const MapComponent = ({
 
   const getBuildingEmoji = (type: string) => {
     switch (type) {
-      case 'heart-tree': return '🌳';
       case 'starter-house': return '🏠';
       case 'apple-tree': return '🍎';
       case 'field-tiles': return '🌾';
@@ -511,15 +560,19 @@ const MapComponent = ({
     <div className="fixed inset-0 z-0 bg-[#08060d] pixel-art overflow-hidden" style={{ contain: 'paint' }}>
       <div className="absolute inset-0 z-[-1]" style={{ background: 'linear-gradient(to bottom, #9fb68d 0%, #cbd5e1 100%)', opacity: 0.5 }} />
       <div ref={mapContainer} className="w-full h-full" style={{ imageRendering: 'pixelated' }} />
-      <div className="absolute right-4 bottom-48 z-20 flex flex-col gap-2">
-        <button onClick={handleZoomIn} className="w-10 h-10 btn-off-white flex items-center justify-center font-bold active:scale-95">+</button>
-        <button onClick={handleZoomOut} className="w-10 h-10 btn-off-white flex items-center justify-center font-bold active:scale-95">-</button>
+      <div className="absolute left-4 bottom-48 z-20 flex flex-col gap-2">
+        <button onClick={handleZoomIn} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2">
+          <img src="/images/zoom-in.png" className="w-full h-full object-contain" alt="Zoom In" />
+        </button>
+        <button onClick={handleZoomOut} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2">
+          <img src="/images/zoom-out.png" className="w-full h-full object-contain" alt="Zoom Out" />
+        </button>
         {isTripping && (
           <button 
             onClick={handleRecenter} 
-            className="w-10 h-10 btn-off-white flex items-center justify-center active:scale-95 mt-2"
+            className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 mt-2 p-2"
           >
-            🎯
+            <img src="/images/recenter.png" className="w-full h-full object-contain" alt="Recenter" />
           </button>
         )}
       </div>
@@ -535,13 +588,13 @@ const MapComponent = ({
       )}
       <div className="absolute top-24 left-4 z-10 pointer-events-none flex flex-col gap-2 font-['Press_Start_2P']">
          {isSearchingGPS && (
-           <div className="bg-blue-600/90 text-white text-[6px] p-2 border-2 border-white animate-pulse shadow-lg flex items-center gap-2">
-             <div className="w-1.5 h-1.5 bg-white rounded-full animate-ping"></div>
+           <div className="parchment-panel p-2 text-blue-600 text-[6px] shadow-lg flex items-center gap-2 animate-pulse">
+             <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping"></div>
              SEARCHING FOR GPS...
            </div>
          )}
          {locationError && (
-           <div className="bg-red-600/90 text-white text-[6px] p-2 border-2 border-white shadow-lg">
+           <div className="parchment-panel p-2 text-red-600 text-[6px] shadow-lg">
              {locationError}
            </div>
          )}

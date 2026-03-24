@@ -138,31 +138,75 @@ const TownView = ({
 
   // Stabilize obstacles with useMemo
   const allObstacles = useMemo(() => {
-    const decoObstacles = decorations.map(d => ({ r: d.r, c: d.c }));
-    const buildingObstacles: {r: number, c: number}[] = [];
+    // For decorations, use a small 8x8 hitbox at their visual center (base)
+    const decoObstacles = decorations.map(d => {
+      const base = gridToWorld(d.c, d.r);
+      const centerX = base.x + d.subX;
+      const centerY = base.y + d.subY;
+      
+      // Trees and bushes are rendered with translate(-50%, -85%).
+      // The (centerX, centerY) is the anchor point on the ground.
+      // We'll put a small 10x10 hitbox around this ground point.
+      return {
+        x: centerX - 5,
+        y: centerY - 5,
+        w: 10,
+        h: 10,
+        r: d.r,
+        c: d.c,
+        type: d.type
+      };
+    });
+
+    const buildingObstacles: any[] = [];
     
     buildings.forEach((b: any) => {
-      if (b.growthState && b.growthState.coordinates) {
-        // Garden beds and trees (1x1)
+      if (b.growthState && b.growthState.coordinates && b.offset) {
+        // Garden beds and trees (sitting on 1 tile)
+        // Hitbox: 24x24 (slightly smaller than 32x32)
         buildingObstacles.push({ 
-          r: b.growthState.coordinates.y, 
-          c: b.growthState.coordinates.x 
+          x: b.offset.x - 12,
+          y: b.offset.y - 12,
+          w: 24,
+          h: 24,
+          r: b.growthState.coordinates.y,
+          c: b.growthState.coordinates.x,
+          type: b.type
         });
       } else if (b.type === 'starter-house' && b.offset) {
-        // House (2x2)
+        // House (2x2 tiles visually, 60x60 image)
+        // anchor is at 50% width, 85% height. 
+        // x range: x-30 to x+30. y range: y-51 to y+9.
+        // Hitbox: 50x20 at the base
         const gridPos = worldToGrid(b.offset.x, b.offset.y);
-        // The house is 60x60, so it covers approximately 2x2 tiles (32px each)
-        // Adjust for its visual center (translate -50%, -85%)
-        // The center is at gridPos.c, gridPos.r
-        // Based on its size and offset, let's block the base tiles
-        buildingObstacles.push({ r: gridPos.r, c: gridPos.c });
-        buildingObstacles.push({ r: gridPos.r, c: gridPos.c - 1 });
-        buildingObstacles.push({ r: gridPos.r - 1, c: gridPos.c });
-        buildingObstacles.push({ r: gridPos.r - 1, c: gridPos.c - 1 });
+        const houseObstacle = { 
+          x: b.offset.x - 25,
+          y: b.offset.y - 12,
+          w: 50,
+          h: 20,
+          type: 'house',
+          // Special for house: it occupies multiple tiles
+          isMultiTile: true,
+          tiles: [
+            { r: gridPos.r, c: gridPos.c },
+            { r: gridPos.r, c: gridPos.c - 1 },
+            { r: gridPos.r - 1, c: gridPos.c },
+            { r: gridPos.r - 1, c: gridPos.c - 1 }
+          ]
+        };
+        buildingObstacles.push(houseObstacle);
       } else if (b.offset) {
-        // Default 1x1 obstacle for other buildings
+        // Default 1x1 hitbox for other buildings
         const gridPos = worldToGrid(b.offset.x, b.offset.y);
-        buildingObstacles.push({ r: gridPos.r, c: gridPos.c });
+        buildingObstacles.push({ 
+          x: b.offset.x - 12,
+          y: b.offset.y - 12,
+          w: 24,
+          h: 24,
+          r: gridPos.r,
+          c: gridPos.c,
+          type: b.type
+        });
       }
     });
 
@@ -190,8 +234,49 @@ const TownView = ({
     }
   };
 
-  const handleClick = () => {
+  const handleBuildingClick = (building: any, e: React.MouseEvent) => {
+    if (isPlacing) return;
+    e.stopPropagation();
+    
+    if (building.type === 'starter-house' && isInsideHouse) {
+      interactWithBuilding(building.id, 'wake');
+      setSelectedBedForActionMenu(null);
+      setSelectedBedForMenu(null);
+      return;
+    }
+
+    if (building.type === 'garden-bed' || building.type === 'garden-tree' || building.type === 'starter-house') {
+      const gs = building.growthState;
+      if (gs && gs.currentLevel === 1 && !gs.produceType) {
+        setSelectedBedForMenu(building.id);
+        setSelectedBedForActionMenu(null);
+      } else {
+        setSelectedBedForActionMenu(building.id);
+        setSelectedBedForMenu(null);
+      }
+    }
+  };
+
+  const handleDecorationClick = (deco: any, e: React.MouseEvent) => {
+    if (isPlacing) return;
+    e.stopPropagation();
+    
+    if (deco.type === 'default-tree' || deco.type === 'bush') {
+      const isReady = !treeCooldowns[deco.id] || Date.now() >= treeCooldowns[deco.id];
+      if (isReady) {
+        setConfirmTreeCollect(deco.id);
+      }
+    }
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
     if (isPlacing && pendingBuilding && hoverTile) {
+      if (e.detail === 2) {
+        // Double click to cancel
+        onBuild(null, null, null); // We can signal cancel this way or add a separate onCancel
+        return;
+      }
+
       const tileType = ISLAND_MAP[hoverTile.r][hoverTile.c];
       
       // Constraint: Garden Bed only on GRASS
@@ -207,7 +292,11 @@ const TownView = ({
 
       // Check for obstacles using the calculated allObstacles
       const checkOccupied = (c: number, r: number) => 
-        allObstacles.some(ob => ob.r === r && ob.c === c);
+        allObstacles.some(ob => 
+          ob.isMultiTile 
+            ? ob.tiles.some((t: any) => t.r === r && t.c === c)
+            : ob.r === r && ob.c === c
+        );
 
       let isOccupied = checkOccupied(hoverTile.c, hoverTile.r);
       
@@ -222,36 +311,9 @@ const TownView = ({
       if (isTerrainValid && !isOccupied) {
         onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hoverTile.c, hoverTile.r));
       }
-    } else if (!isPlacing && hoverTile) {
-      // INTERACTION MODE
-      const clickedBuilding = buildings.find((b: any) => {
-        if (b.growthState) {
-          return b.growthState.coordinates.x === hoverTile.c && b.growthState.coordinates.y === hoverTile.r;
-        }
-        const buildingGrid = worldToGrid(b.offset.x, b.offset.y);
-        return buildingGrid.c === hoverTile.c && buildingGrid.r === hoverTile.r;
-      });
-
-      if (clickedBuilding) {
-         if (clickedBuilding.type === 'starter-house' && isInsideHouse) {
-           interactWithBuilding(clickedBuilding.id, 'wake');
-           setSelectedBedForActionMenu(null);
-           setSelectedBedForMenu(null);
-           return;
-         }
-
-         if (clickedBuilding.type === 'garden-bed' || clickedBuilding.type === 'garden-tree' || clickedBuilding.type === 'starter-house') {
-           const gs = clickedBuilding.growthState;
-           if (gs && gs.currentLevel === 1 && !gs.produceType) {
-             setSelectedBedForMenu(clickedBuilding.id);
-             setSelectedBedForActionMenu(null);
-           } else {
-             setSelectedBedForActionMenu(clickedBuilding.id);
-             setSelectedBedForMenu(null);
-           }
-         }
-      }
     }
+    // General click on empty tiles doesn't need to do anything anymore for interaction
+    // as we added direct handlers to objects.
   };
 
   // Custom Zoom Handlers
@@ -280,7 +342,7 @@ const TownView = ({
 
   return (
     <div 
-      className="relative w-full h-full overflow-hidden bg-[#000b14]"
+      className="relative w-full h-full overflow-hidden bg-[#1e88e5]"
       style={{ imageRendering: 'pixelated', contain: 'paint' }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
@@ -295,7 +357,7 @@ const TownView = ({
           transformOrigin: 'center center'
         }}
       >
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#1e88e5]">
           
           {/* Tile Grid */}
           <div 
@@ -345,13 +407,15 @@ const TownView = ({
                   style={{ 
                     backgroundColor: '#1e88e5', // Base Water
                     margin: '-0.5px',
+                    padding: 0,
+                    border: 'none',
                     transform: 'scale(1.02)'
                   }}
                 >
                   {/* Sand Layer */}
                   {showSand && (
                     <div 
-                      className="absolute inset-0 z-0"
+                      className="absolute inset-0 z-0 border-none outline-none"
                       style={{
                         backgroundImage: 'url("/images/sand.jpg")',
                         backgroundSize: '32px 32px',
@@ -360,6 +424,8 @@ const TownView = ({
                         borderTopRightRadius: sandRadius(-1, 1),
                         borderBottomLeftRadius: sandRadius(1, -1),
                         borderBottomRightRadius: sandRadius(1, 1),
+                        border: 'none',
+                        margin: 0
                       }}
                     />
                   )}
@@ -367,7 +433,7 @@ const TownView = ({
                   {/* Grass Layer */}
                   {isGrass && (
                     <div 
-                      className="absolute inset-0 z-10"
+                      className="absolute inset-0 z-10 border-none outline-none"
                       style={{
                         backgroundImage: 'url("/images/grass texture.png")',
                         backgroundSize: '32px 32px',
@@ -376,6 +442,8 @@ const TownView = ({
                         borderTopRightRadius: grassRadius(-1, 1),
                         borderBottomLeftRadius: grassRadius(1, -1),
                         borderBottomRightRadius: grassRadius(1, 1),
+                        border: 'none',
+                        margin: 0
                       }}
                     />
                   )}
@@ -392,7 +460,8 @@ const TownView = ({
           {decorations.map((deco) => (
             <div 
               key={deco.id}
-              className="absolute pointer-events-none"
+              className={`absolute ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
+              onClick={(e) => handleDecorationClick(deco, e)}
               style={{
                 left: deco.c * TILE_SIZE + TILE_SIZE / 2 + deco.subX,
                 top: deco.r * TILE_SIZE + TILE_SIZE / 2 + deco.subY,
@@ -412,8 +481,8 @@ const TownView = ({
                 }}
               />
               
-              {/* Ready to Harvest Icon for Default Trees */}
-              {deco.type === 'default-tree' && (!treeCooldowns[deco.id] || Date.now() >= treeCooldowns[deco.id]) && (
+              {/* Ready to Harvest Icon for Default Trees/Bushes */}
+              {(deco.type === 'default-tree' || deco.type === 'bush') && (!treeCooldowns[deco.id] || Date.now() >= treeCooldowns[deco.id]) && (
                   <div className="absolute top-[-40px] left-1/2 -translate-x-1/2 animate-bounce z-50">
                       <img src="/images/tools-wood.png" className="w-4 h-4 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Wood Ready" />
                   </div>
@@ -425,7 +494,8 @@ const TownView = ({
           {buildings.filter((b: any) => b.offset && b.offset.x !== undefined).map((building: any) => (
             <div 
               key={building.id}
-              className="absolute pointer-events-none flex flex-col items-center justify-center"
+              className={`absolute flex flex-col items-center justify-center ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
+              onClick={(e) => handleBuildingClick(building, e)}
               style={{
                 left: building.offset.x + (GRID_SIZE * TILE_SIZE) / 2,
                 top: building.offset.y + (GRID_SIZE * TILE_SIZE) / 2,
@@ -537,7 +607,7 @@ const TownView = ({
                   zIndex: 100 + Math.floor(avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2)
                 }}
               >
-                <div className="relative" style={{ transform: 'translate(-50%, -50%)' }}>
+                <div className="relative" style={{ transform: 'translate(-50%, -85%)' }}>
                   <PlayerSprite 
                     direction={facing as any} 
                     isWalking={isWalking} 
@@ -567,7 +637,11 @@ const TownView = ({
                    : (tileType === TILE_TYPES.GRASS || tileType === TILE_TYPES.SAND);
                  
                  const checkOccupied = (c: number, r: number) => 
-                   allObstacles.some(ob => ob.r === r && ob.c === c);
+                   allObstacles.some(ob => 
+                     ob.isMultiTile 
+                       ? ob.tiles.some((t: any) => t.r === r && t.c === c)
+                       : ob.r === r && ob.c === c
+                   );
 
                  let isOccupied = checkOccupied(hoverTile.c, hoverTile.r);
                  if (pendingBuilding.type === 'starter-house') {
@@ -637,14 +711,14 @@ const TownView = ({
                   const b = buildings.find((b: any) => b.id === selectedBedForMenu);
                   const items = b?.type === 'garden-tree'
                     ? [
-                        { type: 'apple', name: 'APPLE', icon: '/images/garden-apple-4.png' },
-                        { type: 'peach', name: 'PEACH', icon: '/images/garden-peach-4.png' },
-                        { type: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry-4.png' }
+                        { type: 'apple', name: 'APPLE', icon: '/images/garden-apple.png' },
+                        { type: 'peach', name: 'PEACH', icon: '/images/garden-peach.png' },
+                        { type: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry.png' }
                       ]
                     : [
-                        { type: 'wheat', name: 'WHEAT', icon: '/images/garden-bed-wheat-4.png' },
-                        { type: 'tomato', name: 'TOMATO', icon: '/images/garden-bed-tomato-4.png' },
-                        { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-bed-pumpkin-4.png' }
+                        { type: 'wheat', name: 'WHEAT', icon: '/images/garden-wheat.png' },
+                        { type: 'tomato', name: 'TOMATO', icon: '/images/garden-tomato.png' },
+                        { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-pumpkin.png' }
                       ];
                   return items.map(p => (
                     <button
@@ -801,26 +875,28 @@ const TownView = ({
       {confirmTreeCollect && (
         <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
            <div className="p-8 flex flex-col items-center gap-6 max-w-[300px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl">
-              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">COLLECT WOOD?</h3>
-              <div className="flex gap-4 w-full justify-center">
+              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">WOOD READY</h3>
+              <div className="flex flex-col gap-3 w-full justify-center">
                   <button 
                     onClick={(e) => {
                         e.stopPropagation();
                         interactWithBuilding(confirmTreeCollect, 'collect-default-wood');
                         setConfirmTreeCollect(null);
                     }}
-                    className="btn-off-white px-6 py-3 text-[10px] flex-1"
+                    className="flex items-center gap-4 btn-off-white p-4 text-left w-full"
                   >
-                    YES
+                    <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
+                    <span className="text-[#3e2723] text-[10px]">PICK</span>
                   </button>
+                  
                   <button 
                     onClick={(e) => {
                         e.stopPropagation();
                         setConfirmTreeCollect(null);
                     }}
-                    className="btn-off-white px-6 py-3 text-[10px] flex-1"
+                    className="mt-2 text-[#3e2723] text-[9px] underline uppercase hover:text-[#5d4a44] transition-colors"
                   >
-                    NO
+                    CANCEL
                   </button>
               </div>
            </div>

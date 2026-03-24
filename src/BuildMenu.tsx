@@ -14,9 +14,9 @@ const BuildMenu = ({ resources, onBuild }) => {
   };
 
   const blueprints = [
-    { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '/images/house.png', isImage: true, cost: { wood: starterHouseCost } },
-    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10 } },
-    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', icon: '/images/garden-apple-1.png', isImage: true, cost: { wood: 15 } }
+    { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '/images/house.png', isImage: true, cost: { wood: 50, coins: 20 } },
+    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10, coins: 5 } },
+    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 } }
   ];
 
   const canAfford = (cost) => {
@@ -24,17 +24,19 @@ const BuildMenu = ({ resources, onBuild }) => {
   };
 
   return (
-    <div className="fixed top-24 right-6 z-[2000] font-['Press_Start_2P'] flex flex-col items-end">
-      {/* Main Hammer Button */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-16 h-16 btn-off-white flex items-center justify-center group"
-      >
-        <img src="/images/tools-build.png" alt="Build" className="w-10 h-10 object-contain pixel-art group-hover:rotate-12 transition-transform" style={{ imageRendering: 'pixelated' }} />
-      </button>
+    <div className="relative font-['Press_Start_2P'] flex flex-col items-center">
+      {/* Main Hammer Button - Styled like Level Circle */}
+      <div className="relative flex items-center justify-center w-16 h-16 pointer-events-auto flex-shrink-0">
+        <button 
+          onClick={() => setIsOpen(!isOpen)}
+          className="absolute inset-0 bg-[#f9f5f0] rounded-full shadow-[0_4px_0_0_#d1c4b9] border-2 border-[#e6ded5] aspect-square flex items-center justify-center group active:translate-y-1 active:shadow-none transition-all"
+        >
+          <img src="/images/tools-build.png" alt="Build" className="w-10 h-10 object-contain pixel-art group-hover:rotate-12 transition-transform" style={{ imageRendering: 'pixelated' }} />
+        </button>
+      </div>
 
       {isOpen && (
-        <div className="mt-8 p-0 w-80 max-h-[50vh] overflow-hidden flex flex-col rounded-3xl bg-[#fcfaf8] shadow-[0_12px_0_0_#d1c4b9,0_20px_40px_rgba(0,0,0,0.4)] animate-in slide-in-from-top-4 duration-300">
+        <div className="absolute top-20 right-0 z-[5000] pointer-events-auto p-0 w-80 max-h-[50vh] overflow-hidden flex flex-col rounded-3xl bg-[#fcfaf8] shadow-[0_12px_0_0_#d1c4b9,0_20px_40px_rgba(0,0,0,0.4)] animate-in slide-in-from-top-4 duration-300">
           {/* Header Area */}
           <div className="bg-[#fcfaf8] p-4 z-10 flex justify-between items-center border-b-2 border-[#d1c4b9]">
             <h3 className="text-[#3e2723] text-[10px]">BLUEPRINTS</h3>

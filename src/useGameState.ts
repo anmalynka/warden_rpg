@@ -3,40 +3,57 @@ import * as turf from '@turf/turf';
 
 export const useGameState = () => {
   // 1. ALL USESTATE AT THE TOP
-  const [resources, setResources] = useState({
-    wood: 50,
-    metal: 20,
-    pebbles: 10,
-    coins: 100
+  const [resources, setResources] = useState(() => {
+    const saved = localStorage.getItem('warden_resources');
+    return saved ? JSON.parse(saved) : {
+      wood: 50,
+      metal: 20,
+      pebbles: 10,
+      coins: 100
+    };
   });
-  const [exploredTerritory, setExploredTerritory] = useState(null);
+  const [exploredTerritory, setExploredTerritory] = useState(() => {
+    const saved = localStorage.getItem('warden_territory');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [spawnedResources, setSpawnedResources] = useState([]);
   const [lastSpawnLocations, setLastSpawnLocations] = useState([]);
   const [buildings, setBuildings] = useState<any[]>(() => {
     const saved = localStorage.getItem('warden_buildings');
     return saved ? JSON.parse(saved) : [];
   });
-  const [totalDistanceWalked, setTotalDistanceWalked] = useState(0);
-  const [avatarPos, setAvatarPos] = useState({ x: 8, y: 8 }); // Offset from center to avoid obstacles
+  const [totalDistanceWalked, setTotalDistanceWalked] = useState(() => {
+    const saved = localStorage.getItem('warden_distance');
+    return saved ? JSON.parse(saved) : 0;
+  });
+  const [avatarPos, setAvatarPos] = useState({ x: 0, y: 0 }); // Ground position at center
   const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
   const [isInsideHouse, setIsInsideHouse] = useState(false);
   const [lastSleepTick, setLastSleepTick] = useState<number | null>(null);
   const [minutesSlept, setMinutesSlept] = useState(0);
   
   // XP & Leveling
-  const [level, setLevel] = useState(1);
-  const [xp, setXp] = useState(0);
-  const XP_TO_NEXT_LEVEL = level * 100;
+  const [level, setLevel] = useState(() => {
+    const saved = localStorage.getItem('warden_level');
+    return saved ? JSON.parse(saved) : 1;
+  });
+  const [xp, setXp] = useState(() => {
+    const saved = localStorage.getItem('warden_xp');
+    return saved ? JSON.parse(saved) : 0;
+  });
+  const XP_TO_NEXT_LEVEL = level * 20;
 
   // Inventory
-  const [inventory, setInventory] = useState<{[key: string]: number}>({
-    wheat: 0,
-    tomato: 0,
-    pumpkin: 0,
-    wood: 0,
-    apple: 0,
-    peach: 0,
-    cherry: 0
+  const [inventory, setInventory] = useState<{[key: string]: number}>(() => {
+    const saved = localStorage.getItem('warden_inventory');
+    return saved ? JSON.parse(saved) : {
+      wheat: 0,
+      tomato: 0,
+      pumpkin: 0,
+      apple: 0,
+      peach: 0,
+      cherry: 0
+    };
   });
 
   // Default Tree Cooldowns (Key: "c,r", Value: timestamp when ready)
@@ -132,13 +149,14 @@ export const useGameState = () => {
     }));
   }, []);
 
-  const interactWithBuilding = useCallback((id: string, action: string, data?: any) => {
+  const interactWithBuilding = useCallback((id: string, action: string, data?: any, onHarvest?: (item: string, count: number) => void) => {
     // Handle Default Trees (Coordinate ID)
     if (id.startsWith('tree-') && action === 'collect-default-wood') {
       const cooldown = treeCooldowns[id] || 0;
       if (Date.now() >= cooldown) {
-        setInventory(prev => ({ ...prev, wood: (prev.wood || 0) + 1 }));
+        setResources(prev => ({ ...prev, wood: (prev.wood || 0) + 1 }));
         setTreeCooldowns(prev => ({ ...prev, [id]: Date.now() + 43200000 })); // 12 hours
+        onHarvest?.('wood', 1);
       }
       return;
     }
@@ -166,8 +184,9 @@ export const useGameState = () => {
           if (gs.currentLevel === 3 && Date.now() >= (gs.waterNeededAt || 0)) {
             // Award XP
             setXp(x => {
+                const threshold = level * 20;
                 const next = x + 5;
-                if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
                 return next;
             });
             
@@ -186,15 +205,17 @@ export const useGameState = () => {
           if (gs.currentLevel === 4) {
             // Award XP
             setXp(x => {
+                const threshold = level * 20;
                 const next = x + 10;
-                if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
                 return next;
             });
             // Add Inventory
             const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
             setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
+            onHarvest?.(produce, 1);
             
-            setResources((r: any) => ({ ...r, coins: r.coins + 20 })); 
+            setResources((r: any) => ({ ...r, coins: r.coins + 20 }));
             
             // Revert to level 3 for trees, level 1 for beds
             if (b.type === 'garden-tree') {
@@ -229,8 +250,9 @@ export const useGameState = () => {
             // Award XP for clearing dead plants
             if (gs.currentLevel === 5) {
                 setXp(x => {
+                    const threshold = level * 20;
                     const next = x + 20;
-                    if (next >= level * 100) { setLevel(l => l + 1); return next - level * 100; }
+                    if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
                     return next;
                 });
             }
@@ -304,11 +326,8 @@ export const useGameState = () => {
   }, [isInsideHouse, lastSleepTick]);
 
   const addBuilding = useCallback((type: string, cost: any, position: any = null) => {
-    // Level Checks
-    if (type === 'garden-bed' && level < 1) return null;
-    if (type === 'garden-tree' && level < 3) return null;
-    if (type === 'starter-house' && level < 5) return null;
-
+    // Level Checks removed to allow building at any level as per user request
+    
     const canAfford = Object.entries(cost).every(([res, amount]: [string, any]) => (resources[res] || 0) >= amount);
     if (!canAfford) return null;
 
@@ -357,6 +376,30 @@ export const useGameState = () => {
   useEffect(() => {
     localStorage.setItem('warden_buildings', JSON.stringify(buildings));
   }, [buildings]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_resources', JSON.stringify(resources));
+  }, [resources]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_inventory', JSON.stringify(inventory));
+  }, [inventory]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_level', JSON.stringify(level));
+  }, [level]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_xp', JSON.stringify(xp));
+  }, [xp]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_distance', JSON.stringify(totalDistanceWalked));
+  }, [totalDistanceWalked]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_territory', JSON.stringify(exploredTerritory));
+  }, [exploredTerritory]);
 
   useEffect(() => {
     const interval = setInterval(() => {
