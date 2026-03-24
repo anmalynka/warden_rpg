@@ -287,6 +287,85 @@ export const useGameState = () => {
     }).filter(Boolean));
   }, [setResources, setIsInsideHouse, level, treeCooldowns]);
 
+  // Hotel Passive Income & NPC Automation
+  useEffect(() => {
+    const hotelInterval = setInterval(() => {
+      if (buildings.some(b => b.type === 'hotel')) {
+        setResources(prev => ({ ...prev, coins: (prev.coins || 0) + 5 }));
+      }
+    }, 60000); // 60s
+
+    const npcInterval = setInterval(() => {
+      if (!buildings.some(b => b.type === 'mini-house')) return;
+
+      setBuildings(prev => {
+        let changed = false;
+        const now = Date.now();
+        const next = prev.map(b => {
+          if (!b.growthState) return b;
+          const gs = b.growthState;
+
+          // NPC Waters Stage 3
+          if (gs.currentLevel === 3 && !gs.isWatered && Date.now() >= (gs.waterNeededAt || 0)) {
+             changed = true;
+             return {
+               ...b,
+               growthState: {
+                 ...gs,
+                 isWatered: true,
+                 wateredAt: now,
+                 lastUpdate: now
+               }
+             };
+          }
+
+          // NPC Harvests Stage 4
+          if (gs.currentLevel === 4) {
+             changed = true;
+             const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
+             
+             // Directly add to inventory/resources without full harvest logic duplication 
+             // (Ideally refactor harvest logic to a helper, but for now inline is safe)
+             setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
+             setResources(r => ({ ...r, coins: (r.coins || 0) + 20 }));
+             
+             // Revert logic
+             if (b.type === 'garden-tree') {
+                return {
+                  ...b,
+                  growthState: {
+                    ...gs,
+                    currentLevel: 3,
+                    isWatered: false,
+                    waterNeededAt: now + 300000,
+                    lastUpdate: now
+                  }
+                };
+             }
+             return {
+               ...b,
+               growthState: {
+                 ...gs,
+                 produceType: null,
+                 currentLevel: 1,
+                 isWatered: false,
+                 startTime: now,
+                 lastUpdate: now
+               }
+             };
+          }
+          return b;
+        });
+        return changed ? next : prev;
+      });
+    }, 5000); // Check every 5s
+
+    return () => {
+      clearInterval(hotelInterval);
+      clearInterval(npcInterval);
+    };
+  }, [buildings]);
+
   // Handle Accelerated Time (Sleeping)
   useEffect(() => {
     if (!isInsideHouse || !lastSleepTick) return;
@@ -332,6 +411,14 @@ export const useGameState = () => {
     if (!canAfford) return null;
 
     const newId = `building-${Date.now()}`;
+
+    // Award XP for construction
+    setXp(x => {
+        const threshold = level * 20;
+        const next = x + 50;
+        if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
+        return next;
+    });
 
     // Deduct resources
     setResources((prev: any) => {
@@ -502,6 +589,7 @@ export const useGameState = () => {
     xp,
     XP_TO_NEXT_LEVEL,
     inventory,
+    setInventory,
     treeCooldowns
   };
 };

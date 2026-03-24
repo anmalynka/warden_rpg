@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import PlayerSprite from './PlayerSprite';
+import ShopUI from './ShopUI';
+import MarketUI from './MarketUI';
 
 // Tile Types
 export const TILE_TYPES = {
@@ -75,13 +77,43 @@ const TownView = ({
   onClearInitialSelection,
   isInsideHouse,
   minutesSlept = 0,
-  treeCooldowns = {}
+  treeCooldowns = {},
+  resources,
+  setResources,
+  inventory,
+  setInventory
   }: any) => {
   const [hoverTile, setHoverTile] = useState<{c: number, r: number} | null>(null);
   const [selectedBedForMenu, setSelectedBedForMenu] = useState<string | null>(null);
   const [selectedBedForActionMenu, setSelectedBedForActionMenu] = useState<string | null>(null);
+  const [shopOpen, setShopOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const touchDistRef = useRef<number | null>(null);
   const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
+
+  const handleBuy = (item: string, cost: number, amount: number) => {
+    if ((resources.coins || 0) >= cost) {
+      setResources((prev: any) => ({
+        ...prev,
+        coins: prev.coins - cost,
+        [item]: (prev[item] || 0) + amount
+      }));
+    }
+  };
+
+  const handleSell = (item: string, price: number, amount: number) => {
+    if ((inventory[item] || 0) >= amount) {
+      setInventory((prev: any) => ({
+        ...prev,
+        [item]: prev[item] - amount
+      }));
+      setResources((prev: any) => ({
+        ...prev,
+        coins: (prev.coins || 0) + price
+      }));
+    }
+  };
+
 
   // Automatically open menu for new buildings (e.g., from placement)
   useEffect(() => {
@@ -174,18 +206,16 @@ const TownView = ({
           type: b.type
         });
       } else if (b.type === 'starter-house' && b.offset) {
-        // House (2x2 tiles visually, 60x60 image)
+        // House (2x2 tiles visually, 72x72 image)
         // anchor is at 50% width, 85% height. 
-        // x range: x-30 to x+30. y range: y-51 to y+9.
-        // Hitbox: 50x20 at the base
+        // Hitbox: 64x64 centered
         const gridPos = worldToGrid(b.offset.x, b.offset.y);
         const houseObstacle = { 
-          x: b.offset.x - 25,
-          y: b.offset.y - 12,
-          w: 50,
-          h: 20,
+          x: b.offset.x - 32,
+          y: b.offset.y - 48, // Adjusted for 85% anchor
+          w: 64,
+          h: 64,
           type: 'house',
-          // Special for house: it occupies multiple tiles
           isMultiTile: true,
           tiles: [
             { r: gridPos.r, c: gridPos.c },
@@ -195,8 +225,32 @@ const TownView = ({
           ]
         };
         buildingObstacles.push(houseObstacle);
+      } else if (b.type === 'market' && b.offset) {
+        // Market (72x96)
+        const gridPos = worldToGrid(b.offset.x, b.offset.y);
+        buildingObstacles.push({ 
+          x: b.offset.x - 32,
+          y: b.offset.y - 70, 
+          w: 64,
+          h: 80,
+          r: gridPos.r,
+          c: gridPos.c,
+          type: b.type
+        });
+      } else if (b.offset && (b.type === 'mini-house' || b.type === 'shop' || b.type === 'hotel')) {
+        // Standard buildings (72x72)
+        const gridPos = worldToGrid(b.offset.x, b.offset.y);
+        buildingObstacles.push({ 
+          x: b.offset.x - 32,
+          y: b.offset.y - 48,
+          w: 64,
+          h: 64,
+          r: gridPos.r,
+          c: gridPos.c,
+          type: b.type
+        });
       } else if (b.offset) {
-        // Default 1x1 hitbox for other buildings
+        // Default 1x1 hitbox for other buildings (like garden beds)
         const gridPos = worldToGrid(b.offset.x, b.offset.y);
         buildingObstacles.push({ 
           x: b.offset.x - 12,
@@ -242,6 +296,16 @@ const TownView = ({
       interactWithBuilding(building.id, 'wake');
       setSelectedBedForActionMenu(null);
       setSelectedBedForMenu(null);
+      return;
+    }
+
+    if (building.type === 'shop') {
+      setShopOpen(true);
+      return;
+    }
+
+    if (building.type === 'market') {
+      setMarketOpen(true);
       return;
     }
 
@@ -537,7 +601,35 @@ const TownView = ({
                   <img 
                     src="/images/house.png" 
                     alt="House" 
-                    className="w-[60px] h-[60px] object-contain"
+                    className="w-[72px] h-[72px] object-contain"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                ) : building.type === 'mini-house' ? (
+                  <img 
+                    src="/images/mini-house.png" 
+                    alt="Mini House" 
+                    className="w-[72px] h-[72px] object-contain"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                ) : building.type === 'shop' ? (
+                  <img 
+                    src="/images/Shop.png" 
+                    alt="Shop" 
+                    className="w-[72px] h-[72px] object-contain"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                ) : building.type === 'market' ? (
+                  <img 
+                    src="/images/Market.png" 
+                    alt="Market" 
+                    className="w-[72px] h-[96px] object-contain"
+                    style={{ imageRendering: 'pixelated' }}
+                  />
+                ) : building.type === 'hotel' ? (
+                  <img 
+                    src="/images/Storage.png" 
+                    alt="Hotel" 
+                    className="w-[72px] h-[72px] object-contain"
                     style={{ imageRendering: 'pixelated' }}
                   />
                 ) : (
@@ -680,7 +772,43 @@ const TownView = ({
                         <img 
                           src="/images/house.png"
                           alt="Ghost House"
-                          className="w-[60px] h-[60px] object-contain"
+                          className="w-[72px] h-[72px] object-contain"
+                          style={{ 
+                            imageRendering: 'pixelated'
+                          }}
+                        />
+                      ) : pendingBuilding.type === 'mini-house' ? (
+                        <img 
+                          src="/images/mini-house.png"
+                          alt="Ghost Mini House"
+                          className="w-[72px] h-[72px] object-contain"
+                          style={{ 
+                            imageRendering: 'pixelated'
+                          }}
+                        />
+                      ) : pendingBuilding.type === 'shop' ? (
+                        <img 
+                          src="/images/Shop.png"
+                          alt="Ghost Shop"
+                          className="w-[72px] h-[72px] object-contain"
+                          style={{ 
+                            imageRendering: 'pixelated'
+                          }}
+                        />
+                      ) : pendingBuilding.type === 'market' ? (
+                        <img 
+                          src="/images/Market.png"
+                          alt="Ghost Market"
+                          className="w-[72px] h-[96px] object-contain"
+                          style={{ 
+                            imageRendering: 'pixelated'
+                          }}
+                        />
+                      ) : pendingBuilding.type === 'hotel' ? (
+                        <img 
+                          src="/images/Storage.png"
+                          alt="Ghost Hotel"
+                          className="w-[72px] h-[72px] object-contain"
                           style={{ 
                             imageRendering: 'pixelated'
                           }}
@@ -930,6 +1058,23 @@ const TownView = ({
               </button>
            </div>
         </div>
+      )}
+      {/* Shop UI */}
+      {shopOpen && (
+        <ShopUI 
+          resources={resources} 
+          onBuy={(item, cost, amount) => handleBuy(item, cost, amount)} 
+          onClose={() => setShopOpen(false)} 
+        />
+      )}
+
+      {/* Market UI */}
+      {marketOpen && (
+        <MarketUI 
+          inventory={inventory} 
+          onSell={(item, price, amount) => handleSell(item, price, amount)} 
+          onClose={() => setMarketOpen(false)} 
+        />
       )}
     </div>
   );

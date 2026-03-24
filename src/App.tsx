@@ -9,6 +9,18 @@ import BottomNav from './BottomNav'
 import TownView, { ISLAND_MAP, GRID_SIZE, TILE_SIZE, TILE_TYPES } from './TownView'
 import './App.css'
 
+interface Obstacle {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  r?: number;
+  c?: number;
+  type?: string;
+  isMultiTile?: boolean;
+  tiles?: { r: number; c: number }[];
+}
+
 function App() {
   const { 
     resources, setResources, buildings, addBuilding, 
@@ -25,6 +37,7 @@ function App() {
     xp,
     XP_TO_NEXT_LEVEL,
     inventory,
+    setInventory,
     treeCooldowns
   } = useGameState();
 
@@ -38,7 +51,7 @@ function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [facing, setFacing] = useState('down');
   const [isWalking, setIsWalking] = useState(false);
-  const [obstacles, setObstacles] = useState<{r: number, c: number}[]>([]);
+  const [obstacles, setObstacles] = useState<Obstacle[]>([]);
   const [initialSelectedBuilding, setInitialSelectedBuilding] = useState<string | null>(null);
   const [harvestNotification, setHarvestNotification] = useState<{item: string, count: number} | null>(null);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
@@ -46,7 +59,7 @@ function App() {
   const clickTimeoutRef = useRef<any>(null);
   const currentPosRef = useRef(avatarPos);
   const moveIntentionRef = useRef<{ dx: number, dy: number, facing: string } | null>(null);
-  const obstaclesRef = useRef(obstacles);
+  const obstaclesRef = useRef<Obstacle[]>(obstacles);
 
   // Sync refs with state for use in intervals
   useEffect(() => {
@@ -340,8 +353,10 @@ function App() {
   const handleHarvest = () => {
     setResources((prev: any) => ({
       ...prev,
-      wood: prev.wood + 5,
-      coins: prev.coins + 10
+      wood: (prev.wood || 0) + 100,
+      metal: (prev.metal || 0) + 100,
+      pebbles: (prev.pebbles || 0) + 100,
+      coins: (prev.coins || 0) + 100
     }));
   };
 
@@ -474,6 +489,10 @@ function App() {
               isInsideHouse={isInsideHouse}
               minutesSlept={minutesSlept}
               treeCooldowns={treeCooldowns}
+              resources={resources}
+              setResources={setResources}
+              inventory={inventory}
+              setInventory={setInventory}
             />
 
             {/* Village UI Overlays - Bottom Left Zoom Controls */}

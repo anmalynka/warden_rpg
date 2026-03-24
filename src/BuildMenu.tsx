@@ -16,7 +16,11 @@ const BuildMenu = ({ resources, onBuild }) => {
   const blueprints = [
     { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '/images/house.png', isImage: true, cost: { wood: 50, coins: 20 } },
     { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10, coins: 5 } },
-    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 } }
+    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 } },
+    { id: 'mini-house', type: 'mini-house', name: 'MINI HOUSE', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 } },
+    { id: 'shop', type: 'shop', name: 'SHOP', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 } },
+    { id: 'market', type: 'market', name: 'MARKET', icon: '/images/Market.png', isImage: true, cost: { wood: 100, metal: 20, coins: 50 } },
+    { id: 'hotel', type: 'hotel', name: 'HOTEL', icon: '/images/Storage.png', isImage: true, cost: { wood: 200, metal: 200, coins: 100 } }
   ];
 
   const canAfford = (cost) => {
