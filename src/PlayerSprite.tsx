@@ -3,10 +3,9 @@ import React from 'react';
 interface PlayerSpriteProps {
   direction: 'down' | 'left' | 'right' | 'up';
   isWalking: boolean;
-  scale?: number;
 }
 
-const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale = 2 }) => {
+const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking }) => {
   // Map directions to row indices (0: down, 1: left, 2: right, 3: up)
   const directionMap = {
     down: 0,
@@ -17,8 +16,6 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale
 
   const row = directionMap[direction];
   
-  // Use raw scale for smooth zooming
-  const finalScale = scale;
   const frameSize = 32;
   const sheetWidth = 192;
   const sheetHeight = 128;
@@ -27,10 +24,13 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale
     <div className="player-sprite-container" style={{ 
       width: `${frameSize}px`, 
       height: `${frameSize}px`,
-      transform: `scale(${finalScale})`,
-      transformOrigin: 'center center',
+      transform: 'translateZ(0)',
+      transformOrigin: 'bottom center',
       overflow: 'hidden',
-      position: 'relative'
+      position: 'relative',
+      imageRendering: 'pixelated',
+      // @ts-ignore
+      imageRendering: 'crisp-edges'
     }}>
       <style>{`
         @keyframes walk-anim-steps {
@@ -45,6 +45,7 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale
           position: absolute;
           image-rendering: pixelated;
           image-rendering: crisp-edges;
+          transform: translateZ(0);
         }
         .cat-walking-active {
           animation: walk-anim-steps 0.8s steps(6) infinite;
@@ -55,7 +56,8 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, scale
         style={{
           backgroundPositionY: `-${row * frameSize}px`,
           left: 0,
-          top: 0
+          top: 0,
+          transform: 'translateZ(0)'
         }}
       />
     </div>

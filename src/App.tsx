@@ -7,7 +7,10 @@ import LoginScreen from './LoginScreen'
 import RoleSelection from './RoleSelection'
 import BottomNav from './BottomNav'
 import TownView from './TownView'
-import { ISLAND_MAP, GRID_SIZE, TILE_SIZE, TILE_TYPES } from './MapConstants'
+import ShopUI from './ShopUI'
+import MarketUI from './MarketUI'
+import { useImagePreloader } from './hooks/useImagePreloader'
+import { ISLAND_MAP, TILE_SIZE, TILE_TYPES, getMapOffset } from './MapConstants'
 import './App.css'
 
 interface Obstacle {
@@ -23,6 +26,7 @@ interface Obstacle {
 }
 
 function App() {
+  useImagePreloader();
   const { 
     resources, setResources, buildings, addBuilding, 
     exploredTerritory, addTerritory, 
@@ -43,7 +47,8 @@ function App() {
     islandMap,
     expandLand,
     expansionCost,
-    npcs
+    npcs,
+    removedDecorations
   } = useGameState();
 
   const [appState, setAppState] = useState('main'); // Default to main to skip login
@@ -61,6 +66,16 @@ function App() {
   const [harvestNotification, setHarvestNotification] = useState<{item: string, count: number} | null>(null);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
+  
+  // Lifted Modal States
+  const [shopOpen, setShopOpen] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
+  const [selectedBedForMenu, setSelectedBedForMenu] = useState<string | null>(null);
+  const [selectedBedForActionMenu, setSelectedBedForActionMenu] = useState<string | null>(null);
+  const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
+  const [expansionConfirm, setExpansionConfirm] = useState<{c: number, r: number} | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id?: string, type: 'building' | 'decoration' | 'restart' } | null>(null);
+
   const clickTimeoutRef = useRef<any>(null);
   const currentPosRef = useRef(avatarPos);
   const moveIntentionRef = useRef<{ dx: number, dy: number, facing: string } | null>(null);
@@ -80,8 +95,8 @@ function App() {
 
   // Returns the number of collision points for a position (0 = perfectly valid)
   const getCollisionCount = useCallback((x: number, y: number) => {
-    const offsetX = -(GRID_SIZE * TILE_SIZE) / 2;
-    const offsetY = -(GRID_SIZE * TILE_SIZE) / 2;
+    const currentSize = islandMap.length;
+    const offset = getMapOffset(currentSize);
     
     const radius = 6;
     const pointsToCheck = [
@@ -94,15 +109,15 @@ function App() {
 
     let count = 0;
     for (const p of pointsToCheck) {
-      const c = Math.floor((p.x - offsetX) / TILE_SIZE);
-      const r = Math.floor((p.y - offsetY) / TILE_SIZE);
+      const c = Math.floor((p.x - offset) / TILE_SIZE);
+      const r = Math.floor((p.y - offset) / TILE_SIZE);
       
-      if (c < 0 || c >= GRID_SIZE || r < 0 || r >= GRID_SIZE) {
+      if (c < 0 || c >= currentSize || r < 0 || r >= currentSize) {
         count++;
         continue;
       }
 
-      const tileType = ISLAND_MAP[r][c];
+      const tileType = islandMap[r][c];
       const isTerrainWalkable = tileType === TILE_TYPES.GRASS || tileType === TILE_TYPES.SAND;
       if (!isTerrainWalkable) {
         count++;
@@ -120,7 +135,7 @@ function App() {
     }
     
     return count;
-  }, []); // No dependencies needed as it uses Refs
+  }, [islandMap]); // Depends on the dynamic islandMap
   
   const isPositionValid = useCallback((x: number, y: number) => {
     // Use Ref to get latest position
@@ -134,7 +149,7 @@ function App() {
     }
 
     return nextCollisions === 0;
-  }, [getCollisionCount]); // Only depends on the stable collision checker
+  }, [getCollisionCount]); // Depends on the stable collision checker which now depends on islandMap
   
   const getBuildingEmoji = (type: string) => {
     switch (type) {
@@ -356,14 +371,24 @@ function App() {
   }, [isJoystickActive, startMovement, stopMovement, facing]);
 
   const handleHarvest = () => {
+    // Inventory Boost
+    setInventory((prev: any) => ({
+      ...prev,
+      wheat: (prev.wheat || 0) + 10,
+      tomato: (prev.tomato || 0) + 10,
+      pumpkin: (prev.pumpkin || 0) + 10,
+      apple: (prev.apple || 0) + 10,
+      peach: (prev.peach || 0) + 10,
+      cherry: (prev.cherry || 0) + 10,
+    }));
+    // Resource Boost (+50 each for testing)
     setResources((prev: any) => ({
       ...prev,
-      wood: (prev.wood || 0) + 100,
-      metal: (prev.metal || 0) + 100,
-      coins: (prev.coins || 0) + 100
+      wood: (prev.wood || 0) + 50,
+      metal: (prev.metal || 0) + 50,
+      coins: (prev.coins || 0) + 50
     }));
   };
-
   const handleToggleTrip = () => {
     setIsTripping(!isTripping);
   };
@@ -372,6 +397,39 @@ function App() {
     setHarvestNotification({ item, count });
     setTimeout(() => setHarvestNotification(null), 3000);
   }, []);
+
+  const handleBuy = (item: string, cost: number, amount: number) => {
+    if ((resources.coins || 0) >= cost) {
+      setResources((prev: any) => ({
+        ...prev,
+        coins: prev.coins - cost,
+        [item]: (prev[item] || 0) + amount
+      }));
+    }
+  };
+
+  const handleSell = (item: string, price: number, amount: number) => {
+    if ((inventory[item] || 0) >= amount) {
+      // Find bonus wood from MarketUI logic
+      const marketItems = [
+        { id: 'wheat', price: 10, bonusWood: 3 },
+        { id: 'tomato', price: 8, bonusWood: 1 },
+        { id: 'peach', price: 10, bonusWood: 1 }
+      ];
+      const match = marketItems.find(i => i.id === item);
+      const bonusWood = (match?.bonusWood || 0) * amount;
+
+      setInventory((prev: any) => ({
+        ...prev,
+        [item]: prev[item] - amount
+      }));
+      setResources((prev: any) => ({
+        ...prev,
+        coins: (prev.coins || 0) + price,
+        wood: (prev.wood || 0) + bonusWood
+      }));
+    }
+  };
 
   const renderBackpackView = () => {
     const items = [
@@ -463,13 +521,16 @@ function App() {
               buildings={buildings}
               isPlacing={isPlacing}
               pendingBuilding={pendingBuilding}
-              onBuild={(type: string, cost: any, pos: {x: number, y: number}) => {
+              onBuild={(type: string, cost: any, pos: {x: number, y: number}, isMove: boolean = false) => {
                 if (!type) {
                   setIsPlacing(false);
                   setPendingBuilding(null);
                   return;
                 }
-                const newBuildingId = addBuilding(type, cost, pos);
+                
+                // If moving, we don't deduct cost
+                const actualCost = isMove ? {} : cost;
+                const newBuildingId = addBuilding(type, actualCost, pos);
                 setIsPlacing(false);
                 setPendingBuilding(null);
                 
@@ -501,6 +562,19 @@ function App() {
               expandLand={expandLand}
               expansionCost={expansionCost}
               npcs={npcs}
+              removedDecorations={removedDecorations}
+              shopOpen={shopOpen}
+              setShopOpen={setShopOpen}
+              marketOpen={marketOpen}
+              setMarketOpen={setMarketOpen}
+              selectedBedForMenu={selectedBedForMenu}
+              setSelectedBedForMenu={setSelectedBedForMenu}
+              selectedBedForActionMenu={selectedBedForActionMenu}
+              setSelectedBedForActionMenu={setSelectedBedForActionMenu}
+              confirmTreeCollect={confirmTreeCollect}
+              setConfirmTreeCollect={setConfirmTreeCollect}
+              expansionConfirm={expansionConfirm}
+              setExpansionConfirm={setExpansionConfirm}
             />
 
             {/* Village UI Overlays - Bottom Left Zoom Controls */}
@@ -619,10 +693,7 @@ function App() {
                 <div className="flex flex-col gap-3 mt-4">
                   <button 
                     onClick={() => {
-                       if (window.confirm('Restart game from new village? All progress will be lost.')) {
-                         resetGame();
-                         setActiveTab('village');
-                       }
+                       setDeleteConfirm({ type: 'restart' });
                     }}
                     className="btn-off-white py-4 text-[10px] w-full shadow-[0_4px_0_0_#d1c4b9]"
                   >
@@ -643,6 +714,450 @@ function App() {
       {/* Navigation */}
       {!isTripping && !isInsideHouse && <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />}
       
+      {/* GLOBAL MODALS (Highest Z-index) */}
+      <div className="modal-root">
+        {/* Produce Selection Menu Overlay */}
+        {selectedBedForMenu && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
+            <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedBedForMenu(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+                >
+                  X
+                </button>
+                {(() => {
+                  const b = buildings.find((b: any) => b.id === selectedBedForMenu);
+                  if (!b) return null;
+                  const BUILDING_NAMES: Record<string, string> = {
+                    'starter-house': 'FOUNDER’S LODGE',
+                    'garden-bed': 'GARDEN BED',
+                    'garden-tree': 'GARDEN TREE',
+                    'mini-house': 'WORKER’S CONDO',
+                    'shop': 'GENERAL STORE',
+                    'market': 'FARMERS’ MARKET',
+                    'hotel': 'FOXGLOVE INN'
+                  };
+                  const title = BUILDING_NAMES[b.type] || b.type.replace('-', ' ').toUpperCase();
+                  return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
+                })()}
+                
+                <div className="grid grid-cols-1 gap-4 w-full">
+                  {(() => {
+                    const b = buildings.find((b: any) => b.id === selectedBedForMenu);
+                    const items = b?.type === 'garden-tree'
+                      ? [
+                          { type: 'apple', name: 'APPLE', icon: '/images/garden-apple.png' },
+                          { type: 'peach', name: 'PEACH', icon: '/images/garden-peach.png' },
+                          { type: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry.png' }
+                        ]
+                      : [
+                          { type: 'wheat', name: 'WHEAT', icon: '/images/garden-wheat.png' },
+                          { type: 'tomato', name: 'TOMATO', icon: '/images/garden-tomato.png' },
+                          { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-pumpkin.png' }
+                        ];
+                    return items.map(p => (
+                      <button
+                        key={p.type}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          interactWithBuilding(selectedBedForMenu, 'select-produce', { produceType: p.type });
+                          setSelectedBedForMenu(null);
+                        }}
+                        className="flex items-center gap-4 btn-off-white p-4 text-left"
+                      >
+                        <img src={p.icon} alt={p.name} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
+                        <span className="text-[#3e2723] text-[10px]">{p.name}</span>
+                      </button>
+                    ));
+                  })()}
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* Action Menu Overlay (Levels 2-5 and House) */}
+        {selectedBedForActionMenu && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
+            <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedBedForActionMenu(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+                >
+                  X
+                </button>
+                {(() => {
+                  const b = buildings.find((b: any) => b.id === selectedBedForActionMenu);
+                  if (!b) return null;
+                  
+                  const BUILDING_NAMES: Record<string, string> = {
+                    'starter-house': 'FOUNDER’S LODGE',
+                    'garden-bed': 'GARDEN BED',
+                    'garden-tree': 'GARDEN TREE',
+                    'mini-house': 'WORKER’S CONDO',
+                    'shop': 'GENERAL STORE',
+                    'market': 'FARMERS’ MARKET',
+                    'hotel': 'FOXGLOVE INN'
+                  };
+
+                  let title = BUILDING_NAMES[b.type] || b.type.replace('-', ' ').toUpperCase();
+                  if (b.type === 'garden-bed' || b.type === 'garden-tree') {
+                    if (b.growthState?.produceType) {
+                      title = b.growthState.produceType.toUpperCase();
+                    }
+                  }
+                  return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
+                })()}
+                
+                <div className="grid grid-cols-1 gap-4 w-full">
+                  {(() => {
+                    const b = buildings.find((b: any) => b.id === selectedBedForActionMenu);
+                    if (!b) return null;
+                    const gs = b.growthState;
+
+                    return (
+                      <>
+                        {/* Garden Bed or Tree Specific Actions */}
+                        {(b.type === 'garden-bed' || b.type === 'garden-tree') && gs && (
+                          <>
+                            {gs.currentLevel === 3 && Date.now() >= (gs.waterNeededAt || 0) && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  interactWithBuilding(b.id, 'water');
+                                  setSelectedBedForActionMenu(null);
+                                }}
+                                className="flex items-center gap-4 btn-off-white p-4 text-left"
+                              >
+                                <img src="/images/garden-watering-can.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Water" />
+                                <span className="text-[#3e2723] text-[10px]">WATER</span>
+                              </button>
+                            )}
+
+                            {gs.currentLevel === 4 && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  interactWithBuilding(b.id, 'harvest');
+                                  setSelectedBedForActionMenu(null);
+                                }}
+                                className="flex items-center gap-4 btn-off-white p-4 text-left"
+                              >
+                                <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
+                                <span className="text-[#3e2723] text-[10px]">PICK</span>
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        {/* Starter House Specific Actions */}
+                        {b.type === 'starter-house' && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                interactWithBuilding(b.id, 'sleep');
+                                setSelectedBedForActionMenu(null);
+                              }}
+                              className="flex items-center gap-4 btn-off-white p-4 text-left"
+                            >
+                              <img src="/images/sleep.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Sleep" />
+                              <span className="text-[#3e2723] text-[10px]">GO TO SLEEP</span>
+                            </button>
+                            </>
+                            )}
+
+                            {/* Mini House Specific Actions */}
+                            {b.type === 'mini-house' && (
+                            <>
+                            {!b.hasWorkerRequested ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  interactWithBuilding(b.id, 'invite-worker');
+                                  setSelectedBedForActionMenu(null);
+                                }}
+                                className="flex items-center gap-4 btn-off-white p-4 text-left"
+                              >
+                                <img src="/images/work-invite.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Worker" />
+                                <span className="text-[#3e2723] text-[10px]">INVITE WORKER</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  interactWithBuilding(b.id, 'leave-worker');
+                                  setSelectedBedForActionMenu(null);
+                                }}
+                                className="flex items-center gap-4 btn-off-white p-4 text-left"
+                              >
+                                <img src="/images/ask-to-leave.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Worker" />
+                                <span className="text-[#3e2723] text-[10px]">ASK WORKER TO LEAVE</span>
+                              </button>
+                            )}
+                            </>
+                            )}
+
+                            {/* Shop Specific Actions */}
+                            {b.type === 'shop' && (
+                            <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShopOpen(true);
+                              setSelectedBedForActionMenu(null);
+                            }}
+                            className="flex items-center gap-4 btn-off-white p-4 text-left"
+                            >
+                            <img src="/images/Shop.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shop" />
+                            <span className="text-[#3e2723] text-[10px]">OPEN SHOP</span>
+                            </button>
+                            )}
+
+                            {/* Market Specific Actions */}
+                            {b.type === 'market' && (
+                            <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMarketOpen(true);
+                              setSelectedBedForActionMenu(null);
+                            }}
+                            className="flex items-center gap-4 btn-off-white p-4 text-left"
+                            >
+                            <img src="/images/Market.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Market" />
+                            <span className="text-[#3e2723] text-[10px]">OPEN MARKET</span>
+                            </button>
+                            )}
+
+                            {/* Hotel Specific Actions */}
+                            {b.type === 'hotel' && (
+                            <>
+                            <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const currentFoxes = npcs.filter(n => n.type === 'vacationer' && n.targetHotelId === b.id).length;
+                              if (currentFoxes < 5) {
+                                interactWithBuilding(b.id, 'invite-vacationer');
+                                setSelectedBedForActionMenu(null);
+                              } else {
+                                alert("Hotel is full!");
+                              }
+                            }}
+                            className="flex items-center gap-4 btn-off-white p-4 text-left"
+                            >
+                            <img src="/images/vac-invite.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Vacationer" />
+                            <div className="flex flex-col">
+                              <span className="text-[#3e2723] text-[10px]">INVITE VACATIONER</span>
+                              <span className="text-[#8b7a6d] text-[8px] uppercase">
+                                {npcs.filter(n => n.type === 'vacationer' && n.targetHotelId === b.id).length} / 5 GUESTS
+                              </span>
+                            </div>
+                            </button>
+
+                            {npcs.filter(n => n.type === 'vacationer' && n.targetHotelId === b.id && n.status !== 'leaving').length > 0 && (
+                              <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                interactWithBuilding(b.id, 'leave-vacationer');
+                                setSelectedBedForActionMenu(null);
+                              }}
+                              className="flex items-center gap-4 btn-off-white p-4 text-left"
+                              >
+                              <img src="/images/ask-to-leave.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Ask to Leave" />
+                              <span className="text-[#3e2723] text-[10px]">ASK GUEST TO LEAVE</span>
+                              </button>
+                            )}
+                            </>
+                            )}
+
+                            {/* Common Remove Action for all player buildings */}
+                            <div className="flex justify-center mt-2">
+                            <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirm({ id: b.id, type: 'building' });
+                              setSelectedBedForActionMenu(null);
+                            }}
+                            className="flex items-center gap-4 btn-off-white p-4 w-full"
+                            >
+                            <img src="/images/garden-bin.png" className="w-8 h-8 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Remove" />
+                            <span className="text-[#3e2723] text-[8px]">DELETE</span>
+                            </button>
+                            </div>                      </>
+                    );
+                  })()}
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tree Collection Confirmation Modal */}
+        {confirmTreeCollect && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+            <div className="p-8 flex flex-col items-center gap-6 max-w-[300px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmTreeCollect(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+                >
+                  X
+                </button>
+                <h3 className="text-[#3e2723] text-[12px] uppercase text-center">TREE</h3>
+                <div className="flex flex-col gap-3 w-full justify-center">
+                    <button 
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          interactWithBuilding(confirmTreeCollect, 'collect-default-wood');
+                          setConfirmTreeCollect(null);
+                      }}
+                      className="flex items-center gap-4 btn-off-white p-4 text-left w-full"
+                    >
+                      <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
+                      <span className="text-[#3e2723] text-[10px]">PICK</span>
+                    </button>
+                    
+                    <button 
+                      onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirm({ id: confirmTreeCollect, type: 'decoration' });
+                          setConfirmTreeCollect(null);
+                      }}
+                      className="flex items-center gap-4 btn-off-white p-4 text-left w-full"
+                    >
+                      <img src="/images/garden-bin.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Remove" />
+                      <span className="text-[#3e2723] text-[10px]">REMOVE</span>
+                    </button>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {/* Expansion Confirmation Modal */}
+        {expansionConfirm && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+            <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExpansionConfirm(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+                >
+                  X
+                </button>
+                <h3 className="text-[#3e2723] text-[12px] uppercase text-center">EXPAND ISLAND?</h3>
+                
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <div className="text-[#8b7a6d] text-[8px] leading-relaxed">
+                    CONVERT SAND TO GRASS AND EXTEND THE BEACH.
+                  </div>
+                  <div className="flex items-center gap-2 bg-[#e6ded5] px-4 py-2 rounded-full">
+                    <span className="text-[#3e2723] text-[10px]">COST:</span>
+                    <img src="/images/tools-coins.png" className="w-4 h-4" />
+                    <span className={`text-[10px] ${(resources.coins || 0) >= expansionCost ? 'text-[#3e2723]' : 'text-red-600'}`}>
+                      {expansionCost}
+                    </span>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={(e) => {
+                      e.stopPropagation();
+                      if (expandLand(expansionConfirm.c, expansionConfirm.r)) {
+                        setExpansionConfirm(null);
+                      } else {
+                        alert("Not enough coins!");
+                      }
+                  }}
+                  disabled={(resources.coins || 0) < expansionCost}
+                  className={`w-full py-4 text-[10px] btn-off-white ${
+                    (resources.coins || 0) < expansionCost ? 'opacity-50 cursor-not-allowed grayscale' : ''
+                  }`}
+                >
+                  CONFIRM EXPANSION
+                </button>
+            </div>
+          </div>
+        )}
+
+        {deleteConfirm && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+            <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteConfirm(null);
+                  }}
+                  className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
+                >
+                  X
+                </button>
+                <h3 className="text-[#3e2723] text-[12px] uppercase text-center">CONFIRM ACTION</h3>
+                
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <div className="text-[#8b7a6d] text-[8px] leading-relaxed">
+                    {deleteConfirm.type === 'restart' && "RESTART GAME? ALL PROGRESS WILL BE LOST."}
+                    {deleteConfirm.type === 'building' && "ARE YOU SURE YOU WANT TO DELETE THIS BUILDING?"}
+                    {deleteConfirm.type === 'decoration' && "REMOVE THIS TREE FROM LAND?"}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 w-full">
+                  <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        if (deleteConfirm.type === 'restart') {
+                          resetGame();
+                          setActiveTab('village');
+                        } else if (deleteConfirm.type === 'building' && deleteConfirm.id) {
+                          interactWithBuilding(deleteConfirm.id, 'remove');
+                        } else if (deleteConfirm.type === 'decoration' && deleteConfirm.id) {
+                          interactWithBuilding(deleteConfirm.id, 'remove-decoration');
+                        }
+                        setDeleteConfirm(null);
+                    }}
+                    className="w-full py-4 text-[10px] bg-[#d32f2f] text-white border-4 border-[#3e2723] shadow-[0_4px_0_0_#b71c1c] active:shadow-none active:translate-y-1"
+                  >
+                    {deleteConfirm.type === 'restart' ? 'RESTART' : 'REMOVE'}
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm(null);
+                    }}
+                    className="w-full py-4 text-[10px] btn-off-white"
+                  >
+                    CANCEL
+                  </button>
+                </div>
+            </div>
+          </div>
+        )}
+
+        {shopOpen && (
+          <ShopUI 
+            resources={resources} 
+            onBuy={(item, cost, amount) => handleBuy(item, cost, amount)} 
+            onClose={() => setShopOpen(false)} 
+          />
+        )}
+
+        {marketOpen && (
+          <MarketUI 
+            inventory={inventory} 
+            onSell={(item, price, amount) => handleSell(item, price, amount)} 
+            onClose={() => setMarketOpen(false)} 
+          />
+        )}
+      </div>
+
       {/* Floating Debug Button for Mobile testing */}
       {activeTab === 'village' && (
         <div className="fixed bottom-24 left-6 z-[2000]">

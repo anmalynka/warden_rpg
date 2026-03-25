@@ -1,10 +1,8 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import PlayerSprite from './PlayerSprite';
-import ShopUI from './ShopUI';
-import MarketUI from './MarketUI';
 import { 
-  TILE_TYPES, GRID_SIZE, TILE_SIZE, MAP_OFFSET_X, MAP_OFFSET_Y, 
-  worldToGrid, gridToWorld, ISLAND_MAP 
+  TILE_TYPES, TILE_SIZE, 
+  worldToGrid, gridToWorld, ISLAND_MAP, getBuildingTiles 
 } from './MapConstants';
 
 const TownView = ({ 
@@ -15,7 +13,6 @@ const TownView = ({
   isPlacing, 
   pendingBuilding, 
   onBuild,
-  role,
   getBuildingEmoji,
   mousePos,
   setMousePos,
@@ -29,59 +26,29 @@ const TownView = ({
   minutesSlept = 0,
   treeCooldowns = {},
   resources,
-  setResources,
   inventory,
-  setInventory,
   islandMap,
   expandLand,
   expansionCost,
-  npcs
+  npcs,
+  shopOpen,
+  setShopOpen,
+  marketOpen,
+  setMarketOpen,
+  selectedBedForMenu,
+  setSelectedBedForMenu,
+  selectedBedForActionMenu,
+  setSelectedBedForActionMenu,
+  confirmTreeCollect,
+  setConfirmTreeCollect,
+  expansionConfirm,
+  setExpansionConfirm,
+  removedDecorations = []
   }: any) => {
-  const [hoverTile, setHoverTile] = useState<{c: number, r: number} | null>(null);
-  const [selectedBedForMenu, setSelectedBedForMenu] = useState<string | null>(null);
-  const [selectedBedForActionMenu, setSelectedBedForActionMenu] = useState<string | null>(null);
-  const [shopOpen, setShopOpen] = useState(false);
-  const [marketOpen, setMarketOpen] = useState(false);
-  const [expansionConfirm, setExpansionConfirm] = useState<{c: number, r: number} | null>(null);
   const touchDistRef = useRef<number | null>(null);
-  const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
   
   // Use passed islandMap or fallback for safety
   const currentMap = islandMap || ISLAND_MAP;
-
-  const handleBuy = (item: string, cost: number, amount: number) => {
-    if ((resources.coins || 0) >= cost) {
-      setResources((prev: any) => ({
-        ...prev,
-        coins: prev.coins - cost,
-        [item]: (prev[item] || 0) + amount
-      }));
-    }
-  };
-
-  const handleSell = (item: string, price: number, amount: number) => {
-    if ((inventory[item] || 0) >= amount) {
-      // Find bonus wood from MarketUI logic
-      const marketItems = [
-        { id: 'wheat', price: 10, bonusWood: 3 },
-        { id: 'tomato', price: 8, bonusWood: 1 },
-        { id: 'peach', price: 10, bonusWood: 1 }
-      ];
-      const match = marketItems.find(i => i.id === item);
-      const bonusWood = (match?.bonusWood || 0) * amount;
-
-      setInventory((prev: any) => ({
-        ...prev,
-        [item]: prev[item] - amount
-      }));
-      setResources((prev: any) => ({
-        ...prev,
-        coins: (prev.coins || 0) + price,
-        wood: (prev.wood || 0) + bonusWood
-      }));
-    }
-  };
-
 
   // Automatically open menu for new buildings (e.g., from placement)
   useEffect(() => {
@@ -96,78 +63,52 @@ const TownView = ({
       }
       onClearInitialSelection?.();
     }
-  }, [initialSelectedBuilding, buildings, onClearInitialSelection]);
+  }, [initialSelectedBuilding, buildings, onClearInitialSelection, setSelectedBedForMenu, setSelectedBedForActionMenu]);
 
-  // Stable random decorations with sub-tile offsets
   const decorations = useMemo(() => {
     const decoList: any[] = [];
     const assets = [
       { url: '/images/Bush_simple1_1.png', type: 'bush' },
       { url: '/images/Bush_blue_flowers1.png', type: 'mushroom' },
-      { url: '/images/Tree1.png', type: 'default-tree' }, // Added default trees
+      { url: '/images/Tree1.png', type: 'default-tree' },
       { url: '/images/Tree2.png', type: 'default-tree' }
     ];
 
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
+    const currentSize = currentMap.length;
+
+    for (let r = 0; r < currentSize; r++) {
+      for (let c = 0; c < currentSize; c++) {
         if (currentMap[r][c] === TILE_TYPES.GRASS) {
           const rand = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453 % 1;
-          // Increased density slightly to account for trees, but tree chance is lower
           if (Math.abs(rand) < 0.15) {
             const assetIdx = Math.floor(Math.abs(rand * 100)) % assets.length;
+            const subX = (rand * 8); 
+            const subY = (Math.cos(r * 10) * 8); 
+            const id = `tree-${c}-${r}`;
             
-            // Trees need more space, prevent them from spawning too close if possible, 
-            // but for now simple random is fine.
-            
-            const subX = (rand * 8); // -4 to +4
-            const subY = (Math.cos(r * 10) * 8); // -4 to +4
-            
-            decoList.push({ 
-              r, c, 
-              asset: assets[assetIdx].url, 
-              type: assets[assetIdx].type,
-              subX, subY,
-              id: `tree-${c}-${r}` // Consistent ID for cooldown tracking
-            });
+            if (!removedDecorations.includes(id)) {
+              decoList.push({ 
+                r, c, 
+                asset: assets[assetIdx].url, 
+                type: assets[assetIdx].type,
+                subX, subY,
+                id 
+              });
+            }
           }
         }
       }
     }
     return decoList;
-  }, []);
-
-  const getBuildingTiles = (type: string, c: number, r: number) => {
-    // Returns array of {r, c} that the building occupies
-    // (c, r) is the anchor tile (bottom-right usually)
-    if (type === 'starter-house') {
-      return [
-        { r, c },
-        { r, c: c - 1 },
-        { r: r - 1, c },
-        { r: r - 1, c: c - 1 }
-      ];
-    }
-    if (type === 'market') {
-      return [
-        { r, c },
-        { r, c: c - 1 }
-      ];
-    }
-    // Default 1x1
-    return [{ r, c }];
-  };
+  }, [currentMap, removedDecorations]);
 
   // Stabilize obstacles with useMemo
   const allObstacles = useMemo(() => {
-    // For decorations, use a small 8x8 hitbox at their visual center (base)
+    const currentSize = currentMap.length;
     const decoObstacles = decorations.map(d => {
-      const base = gridToWorld(d.c, d.r);
+      const base = gridToWorld(d.c, d.r, currentSize);
       const centerX = base.x + d.subX;
       const centerY = base.y + d.subY;
-      
-      // Trees and bushes are rendered with translate(-50%, -85%).
-      // The (centerX, centerY) is the anchor point on the ground.
-      // We'll put a small 10x10 hitbox around this ground point.
       return {
         x: centerX - 5,
         y: centerY - 5,
@@ -183,19 +124,14 @@ const TownView = ({
     
     buildings.forEach((b: any) => {
       if (b.offset) {
-        const gridPos = worldToGrid(b.offset.x, b.offset.y);
+        const gridPos = worldToGrid(b.offset.x, b.offset.y, currentSize);
         const tiles = getBuildingTiles(b.type, gridPos.c, gridPos.r);
         
-        let hitbox = { x: 0, y: 0, w: 0, h: 0 };
+        // Use 64x64 collision area for most buildings
+        let hitbox = { x: b.offset.x - 32, y: b.offset.y - 32, w: 64, h: 64 };
         
-        if (b.type === 'starter-house') {
-           hitbox = { x: b.offset.x - 27, y: b.offset.y - 10, w: 54, h: 20 };
-        } else if (b.type === 'market') {
-           hitbox = { x: b.offset.x - 30, y: b.offset.y + 4, w: 60, h: 10 };
-        } else if (b.type === 'mini-house' || b.type === 'shop' || b.type === 'hotel') {
-           hitbox = { x: b.offset.x - 27, y: b.offset.y - 10, w: 54, h: 20 };
-        } else {
-           hitbox = { x: b.offset.x - 12, y: b.offset.y - 8, w: 24, h: 16 };
+        if (b.type === 'garden-bed' || b.type === 'garden-tree' || b.type === 'shop') {
+           hitbox = { x: b.offset.x - 16, y: b.offset.y - 16, w: 32, h: 32 };
         }
 
         buildingObstacles.push({
@@ -209,8 +145,19 @@ const TownView = ({
       }
     });
 
-    return [...decoObstacles, ...buildingObstacles];
-  }, [decorations, buildings]);
+    const npcObstacles = npcs.map((npc: any) => {
+      const worldPos = gridToWorld(npc.c, npc.r, currentSize);
+      return {
+        x: worldPos.x - 12,
+        y: worldPos.y - 12,
+        w: 24,
+        h: 24,
+        type: 'npc'
+      };
+    });
+
+    return [...decoObstacles, ...buildingObstacles, ...npcObstacles];
+  }, [decorations, buildings, npcs, currentMap.length]);
 
   // Pass obstacles to parent for collision logic
   useEffect(() => {
@@ -218,18 +165,16 @@ const TownView = ({
   }, [allObstacles, onUpdateObstacles]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    const currentSize = currentMap.length;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = (e.clientX - rect.left - rect.width / 2) / villageZoom + avatarPos.x;
     const y = (e.clientY - rect.top - rect.height / 2) / villageZoom + avatarPos.y;
-    const { c, r } = worldToGrid(x, y);
+    const { c, r } = worldToGrid(x, y, currentSize);
     
-    if (c >= 0 && c < GRID_SIZE && r >= 0 && r < GRID_SIZE) {
-      setHoverTile({ c, r });
+    if (c >= 0 && c < currentSize && r >= 0 && r < currentSize) {
       if (isPlacing) {
-        setMousePos(gridToWorld(c, r));
+        setMousePos(gridToWorld(c, r, currentSize));
       }
-    } else {
-      setHoverTile(null);
     }
   };
 
@@ -289,59 +234,54 @@ const TownView = ({
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    if (isPlacing && pendingBuilding && hoverTile) {
+    const currentSize = currentMap.length;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - rect.left - rect.width / 2) / villageZoom + avatarPos.x;
+    const y = (e.clientY - rect.top - rect.height / 2) / villageZoom + avatarPos.y;
+    const { c: hc, r: hr } = worldToGrid(x, y, currentSize);
+
+    if (isPlacing && pendingBuilding && hc >= 0 && hc < currentSize && hr >= 0 && hr < currentSize) {
       if (e.detail === 2) {
-        // Double click to cancel
-        onBuild(null, null, null); // We can signal cancel this way or add a separate onCancel
+        onBuild(null, null, null);
         return;
       }
 
-      const tileType = currentMap[hoverTile.r][hoverTile.c];
-      
-      // Constraint: Garden Bed only on GRASS
-      if (pendingBuilding.type === 'garden-bed' && tileType !== TILE_TYPES.GRASS) {
-        return;
-      }
-      
-      // Check for obstacles using the calculated allObstacles
-      const checkOccupied = (c: number, r: number) => 
+      const checkOccupied = (cc: number, rr: number) => 
         allObstacles.some(ob => 
           ob.isMultiTile 
-            ? ob.tiles.some((t: any) => t.r === r && t.c === c)
-            : ob.r === r && ob.c === c
+            ? ob.tiles.some((t: any) => t.r === rr && t.c === cc)
+            : ob.r === rr && ob.c === cc
         );
 
-      const pendingTiles = getBuildingTiles(pendingBuilding.type, hoverTile.c, hoverTile.r);
+      const pendingTiles = getBuildingTiles(pendingBuilding.type, hc, hr);
       
       const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
       const isTerrainValid = pendingTiles.every(t => {
         const tType = currentMap[t.r]?.[t.c];
-        return pendingBuilding.type === 'garden-bed' 
-          ? tType === TILE_TYPES.GRASS 
-          : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
+        return tType === TILE_TYPES.GRASS;
       });
 
       if (isTerrainValid && !isOccupied) {
-        onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hoverTile.c, hoverTile.r));
+        onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hc, hr, currentSize));
       }
+      return;
     }
 
-    // Land Expansion: Click on SAND
-    if (hoverTile) {
-      const tileType = currentMap[hoverTile.r][hoverTile.c];
-      if (tileType === TILE_TYPES.SAND) {
-        // Check distance (within 2 tiles)
-        const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
-        const dist = Math.sqrt(Math.pow(playerGrid.c - hoverTile.c, 2) + Math.pow(playerGrid.r - hoverTile.r, 2));
+    // Land Expansion: Click on SAND or WATER
+    if (hc >= 0 && hc < currentSize && hr >= 0 && hr < currentSize) {
+      const tileType = currentMap[hr][hc];
+      if (tileType === TILE_TYPES.SAND || tileType === TILE_TYPES.WATER) {
+        const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
+        const isPlayerOnLand = currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.SAND || currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.GRASS;
+        const dist = Math.sqrt(Math.pow(playerGrid.c - hc, 2) + Math.pow(playerGrid.r - hr, 2));
 
-        if (dist <= 2.5) {
-           setExpansionConfirm({ c: hoverTile.c, r: hoverTile.r });
+        if (isPlayerOnLand && dist <= 2.5) {
+           setExpansionConfirm({ c: hc, r: hr });
         }
       }
     }
   };
 
-    // Custom Zoom Handlers
   const handleWheel = (e: React.WheelEvent) => {
     const delta = e.deltaY * -0.001;
     setVillageZoom((prev: number) => Math.min(Math.max(prev + delta, 0.5), 4));
@@ -365,10 +305,18 @@ const TownView = ({
     touchDistRef.current = null;
   };
 
+  const currentSize = currentMap.length;
+  const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
+
   return (
     <div 
       className="relative w-full h-full overflow-hidden bg-[#1e88e5]"
-      style={{ imageRendering: 'pixelated', contain: 'paint' }}
+      style={{ 
+        imageRendering: 'pixelated', 
+        contain: 'paint',
+        backgroundImage: 'url(/images/water.jpg)',
+        backgroundSize: '256px 256px'
+      }}
       onMouseMove={handleMouseMove}
       onClick={handleClick}
       onWheel={handleWheel}
@@ -376,72 +324,72 @@ const TownView = ({
       onTouchEnd={handleTouchEnd}
     >
       <div 
-        className="absolute inset-0 transition-transform duration-300 ease-out"
+        className="absolute inset-0"
         style={{
-          transform: `scale(${villageZoom}) translate(${-avatarPos.x}px, ${-avatarPos.y}px)`,
-          transformOrigin: 'center center'
+          transform: `scale(${villageZoom}) translate(${-Math.round(avatarPos.x)}px, ${-Math.round(avatarPos.y)}px)`,
+          transformOrigin: 'center center',
+          imageRendering: 'pixelated',
+          // @ts-ignore
+          imageRendering: 'crisp-edges'
         }}
       >
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-[#1e88e5]">
           
-          {/* Tile Grid */}
           <div 
             style={{
               display: 'grid',
-              gridTemplateColumns: `repeat(${GRID_SIZE}, ${TILE_SIZE}px)`,
-              gridTemplateRows: `repeat(${GRID_SIZE}, ${TILE_SIZE}px)`,
-              width: GRID_SIZE * TILE_SIZE,
-              height: GRID_SIZE * TILE_SIZE,
+              gridTemplateColumns: `repeat(${currentSize}, ${TILE_SIZE}px)`,
+              gridTemplateRows: `repeat(${currentSize}, ${TILE_SIZE}px)`,
+              width: currentSize * TILE_SIZE,
+              height: currentSize * TILE_SIZE,
             }}
           >
             {currentMap.map((row, r) => row.map((type, c) => {
               const isGrass = type === TILE_TYPES.GRASS;
               const isSand = type === TILE_TYPES.SAND;
-              
-              // Jitter for organic feel
-              const jitter = ((Math.sin(r * 11 + c * 7) * 43758.5453) % 1) * 3;
+              const isWater = type === TILE_TYPES.WATER;
 
-              // Helper for neighbors (treat out of bounds as Water)
               const getType = (rr: number, cc: number) => {
-                if (rr < 0 || rr >= GRID_SIZE || cc < 0 || cc >= GRID_SIZE) return TILE_TYPES.WATER;
+                if (rr < 0 || rr >= currentSize || cc < 0 || cc >= currentSize) return TILE_TYPES.WATER;
                 return currentMap[rr][cc];
               };
 
-              // Masking Logic
-              // Sand Layer (renders if Sand or Grass)
-              const showSand = isSand || isGrass;
               const sandRadius = (dr: number, dc: number) => {
-                 const t = getType(r + dr, c);
-                 const s = getType(r, c + dc);
-                 // If both neighbors are Water, round this corner
-                 return (t === TILE_TYPES.WATER && s === TILE_TYPES.WATER) ? `12px` : '0px';
+                 const vertical = getType(r + dr, c);
+                 const horizontal = getType(r, c + dc);
+                 // Round if both adjacent sides are water
+                 return (vertical === TILE_TYPES.WATER && horizontal === TILE_TYPES.WATER) ? `12px` : '0px';
               };
 
-              // Grass Layer (renders if Grass)
               const grassRadius = (dr: number, dc: number) => {
-                 const t = getType(r + dr, c);
-                 const s = getType(r, c + dc);
-                 // If both neighbors are Water OR Sand, round this corner
-                 return (t !== TILE_TYPES.GRASS && s !== TILE_TYPES.GRASS) ? `12px` : '0px';
+                 const vertical = getType(r + dr, c);
+                 const horizontal = getType(r, c + dc);
+                 // Round if both adjacent sides are not grass
+                 return (vertical !== TILE_TYPES.GRASS && horizontal !== TILE_TYPES.GRASS) ? `12px` : '0px';
               };
+
+              const isPlayerOnLand = currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.SAND || currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.GRASS;
+              const distToPlayer = Math.sqrt(Math.pow(playerGrid.c - c, 2) + Math.pow(playerGrid.r - r, 2));
+              const canExpandThisTile = (isSand || isWater) && isPlayerOnLand && distToPlayer <= 2.5;
 
               return (
                 <div 
                   key={`${c}-${r}`}
-                  className="relative w-full h-full border-none outline-none"
+                  className="relative w-full h-full border-none outline-none overflow-hidden"
                   style={{ 
-                    backgroundImage: 'url(/images/water.jpg)',
-                    backgroundSize: 'cover',
+                    backgroundImage: 'url("/images/water.jpg")',
+                    backgroundSize: '32px 32px',
+                    imageRendering: 'pixelated',
+                    // @ts-ignore
+                    imageRendering: 'crisp-edges',
                     margin: '-0.5px',
-                    padding: 0,
-                    border: 'none',
-                    transform: 'scale(1.02)'
+                    transform: 'scale(1.02)',
+                    border: 'none'
                   }}
                 >
-                  {/* Sand Layer */}
-                  {showSand && (
+                  {(isSand || isGrass) && (
                     <div 
-                      className="absolute inset-0 z-0 border-none outline-none"
+                      className="absolute inset-0 z-0"
                       style={{
                         backgroundImage: 'url("/images/sand.jpg")',
                         backgroundSize: '32px 32px',
@@ -450,16 +398,13 @@ const TownView = ({
                         borderTopRightRadius: sandRadius(-1, 1),
                         borderBottomLeftRadius: sandRadius(1, -1),
                         borderBottomRightRadius: sandRadius(1, 1),
-                        border: 'none',
-                        margin: 0
                       }}
                     />
                   )}
 
-                  {/* Grass Layer */}
                   {isGrass && (
                     <div 
-                      className="absolute inset-0 z-10 border-none outline-none"
+                      className="absolute inset-0 z-10"
                       style={{
                         backgroundImage: 'url("/images/grass texture.png")',
                         backgroundSize: '32px 32px',
@@ -468,67 +413,64 @@ const TownView = ({
                         borderTopRightRadius: grassRadius(-1, 1),
                         borderBottomLeftRadius: grassRadius(1, -1),
                         borderBottomRightRadius: grassRadius(1, 1),
-                        border: 'none',
-                        margin: 0
                       }}
                     />
                   )}
 
-                  {isPlacing && (isGrass || isSand) && hoverTile?.c === c && hoverTile?.r === r && (
-                    <div className="absolute inset-0 border-2 border-green-400/80 animate-pulse z-20" />
+                  {canExpandThisTile && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+                       <div className="bg-[#3e2723]/80 text-[#e9d681] text-[4px] px-1 py-0.5 rounded animate-pulse border border-[#e9d681]">
+                         EXPAND
+                       </div>
+                    </div>
                   )}
                 </div>
               );
             }))}
           </div>
 
-          {/* Decorations Layer */}
           {decorations.map((deco) => (
             <div 
               key={deco.id}
               className={`absolute ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
               onClick={(e) => handleDecorationClick(deco, e)}
               style={{
-                left: deco.c * TILE_SIZE + TILE_SIZE / 2 + deco.subX,
-                top: deco.r * TILE_SIZE + TILE_SIZE / 2 + deco.subY,
-                zIndex: 100 + Math.floor(deco.r * TILE_SIZE + TILE_SIZE / 2 + deco.subY)
+                left: Math.round(deco.c * TILE_SIZE + TILE_SIZE / 2 + deco.subX),
+                top: Math.round(deco.r * TILE_SIZE + TILE_SIZE / 2 + deco.subY),
+                zIndex: 100 + Math.round(deco.r * TILE_SIZE + TILE_SIZE / 2 + deco.subY),
               }}
             >
-              {/* Asset */}
               <div 
                 style={{
-                  width: TILE_SIZE,
-                  height: TILE_SIZE,
+                  width: TILE_SIZE, height: TILE_SIZE,
                   backgroundImage: `url(${deco.asset})`,
                   backgroundSize: 'contain',
                   backgroundPosition: 'center bottom',
                   backgroundRepeat: 'no-repeat',
-                  transform: 'translate(-50%, -85%) scale(1.1)',
+                  transform: 'translate(-50%, -100%) scale(1.1)',
+                  transformOrigin: 'bottom center'
                 }}
               />
-              
-              {/* Ready to Harvest Icon for Default Trees/Bushes */}
               {(deco.type === 'default-tree' || deco.type === 'bush') && (!treeCooldowns[deco.id] || Date.now() >= treeCooldowns[deco.id]) && (
-                  <div className="absolute top-[-20px] left-1/2 -translate-x-1/2 animate-bounce z-50">
+                  <div className="absolute top-[-32px] left-1/2 -translate-x-1/2 animate-bounce z-50">
                       <img src="/images/tools-wood.png" className="w-4 h-4 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Wood Ready" />
                   </div>
               )}
             </div>
           ))}
 
-          {/* Buildings Layer */}
           {buildings.filter((b: any) => b.offset && b.offset.x !== undefined).map((building: any) => (
             <div 
               key={building.id}
               className={`absolute flex flex-col items-center justify-center ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
               onClick={(e) => handleBuildingClick(building, e)}
               style={{
-                left: building.offset.x + (GRID_SIZE * TILE_SIZE) / 2,
-                top: building.offset.y + (GRID_SIZE * TILE_SIZE) / 2,
-                zIndex: 100 + Math.floor(building.offset.y + (GRID_SIZE * TILE_SIZE) / 2)
+                left: Math.round(building.offset.x + (currentSize * TILE_SIZE) / 2 + 16),
+                top: Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + 16),
+                zIndex: 100 + Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + 16),
               }}
             >
-              <div style={{ transform: 'translate(-50%, -85%)' }} className="flex flex-col items-center">
+              <div style={{ transform: 'translate(-50%, -100%)', transformOrigin: 'bottom center' }} className="flex flex-col items-center">
                 {(building.type === 'garden-bed' || building.type === 'garden-tree') && building.growthState ? (
                   <div className="relative">
                      <img 
@@ -540,174 +482,99 @@ const TownView = ({
                        className={`w-10 h-10 object-contain ${building.growthState.currentLevel === 5 ? 'grayscale brightness-75' : ''}`}
                        style={{ imageRendering: 'pixelated' }}
                      />
-                     
-                     {/* Interaction Icons Above Bed/Tree */}
-                     {building.growthState.currentLevel === 3 && !building.growthState.isWatered && Date.now() >= (building.growthState.waterNeededAt || 0) && (
+                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 3 && !building.growthState.isWatered && Date.now() >= (building.growthState.waterNeededAt || 0) && (
                        <div className="absolute top-0 right-0 animate-bounce">
                           <img src="/images/garden-watering-can.png" className="w-[12px] h-[12px] object-contain" alt="Needs Water" />
                        </div>
                      )}
-                     {building.growthState.currentLevel === 4 && (
+                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 4 && (
                        <div className="absolute top-0 right-0 animate-pulse">
                           <img src="/images/garden-pick.png" className="w-[12px] h-[12px] object-contain" alt="Ready to Harvest" />
                        </div>
                      )}
-                     {building.growthState.currentLevel === 5 && (
-                       <div className="absolute -top-10 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 5 && (
+                       <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center">
                           <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Remove Dead Plant" />
                           <div className="text-[6px] bg-red-500 text-white px-1">DEAD</div>
                        </div>
                      )}
                   </div>
                 ) : building.type === 'starter-house' ? (
-                  <img 
-                    src="/images/house.png" 
-                    alt="House" 
-                    className="w-[72px] h-[72px] object-contain"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
+                  <img src="/images/house.png" alt="House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
                 ) : building.type === 'mini-house' ? (
-                  <img 
-                    src="/images/mini-house.png" 
-                    alt="Mini House" 
-                    className="w-[72px] h-[72px] object-contain"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
+                  <img src="/images/mini-house.png" alt="Mini House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
                 ) : building.type === 'shop' ? (
-                  <img 
-                    src="/images/Shop.png" 
-                    alt="Shop" 
-                    className="w-[72px] h-[72px] object-contain"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
+                  <img src="/images/Shop.png" alt="Shop" className="w-[32px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
                 ) : building.type === 'market' ? (
-                  <img 
-                    src="/images/Market.png" 
-                    alt="Market" 
-                    className="w-[72px] h-[96px] object-contain"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
+                  <img src="/images/Market.png" alt="Market" className="w-[72px] h-[96px] object-contain" style={{ imageRendering: 'pixelated' }} />
                 ) : building.type === 'hotel' ? (
-                  <img 
-                    src="/images/Storage.png" 
-                    alt="Hotel" 
-                    className="w-[72px] h-[72px] object-contain"
-                    style={{ imageRendering: 'pixelated' }}
-                  />
+                  <img src="/images/Storage.png" alt="Hotel" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
                 ) : (
-                  <span className="text-4xl" role="img" aria-label={building.type}>
-                    {getBuildingEmoji(building.type)}
-                  </span>
+                  <img src={`/images/${building.type}.png`} alt={building.type} className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} onError={(e: any) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
                 )}
+                <span className="text-4xl hidden" role="img" aria-label={building.type}>{getBuildingEmoji(building.type)}</span>
               </div>
             </div>
           ))}
 
-          {/* Avatar Rendering */}
           {!isInsideHouse && (
             <>
-              {/* Interaction Prompt for House */}
-              {(() => {
-                const house = buildings.find((b: any) => b.type === 'starter-house');
-                if (house) {
-                  const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
-                  const houseGrid = worldToGrid(house.offset.x, house.offset.y);
-                  const distC = Math.abs(playerGrid.c - houseGrid.c);
-                  const distR = Math.abs(playerGrid.r - houseGrid.r);
-                  
-                  // Near the house (adjacent tiles)
-                  if (distC <= 1 && distR <= 1) {
-                    return null;
-                  }
-                }
-                return null;
-              })()}
-
-              {/* Sleep Hours Counter Above House */}
-              {isInsideHouse && (() => {
-                const house = buildings.find((b: any) => b.type === 'starter-house');
-                if (house) {
-                  const hrs = Math.floor(minutesSlept / 60);
-                  const mins = minutesSlept % 60;
-                  return (
-                    <div 
-                      className="absolute z-[2000] pointer-events-none flex flex-col items-center gap-2"
-                      style={{
-                        left: house.offset.x + (GRID_SIZE * TILE_SIZE) / 2,
-                        top: house.offset.y + (GRID_SIZE * TILE_SIZE) / 2 - 85,
-                      }}
-                    >
-                      <div className="bg-[#fcfaf8] text-[#3e2723] text-[8px] px-3 py-2 rounded-full shadow-[0_4px_0_0_#d1c4b9] font-['Press_Start_2P'] animate-bounce border-2 border-[#d1c4b9]">
-                        {hrs}h {mins}m PASSED
-                      </div>
-                      <div className="flex gap-2">
-                        <span className="text-white text-sm animate-ping delay-75">z</span>
-                        <span className="text-white text-md animate-ping delay-200">z</span>
-                        <span className="text-white text-lg animate-ping delay-500">z</span>
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
+              {/* Player Sprite */}
               <div 
-                className="absolute transition-all duration-100 ease-linear flex items-center justify-center"
+                className="absolute flex items-center justify-center"
                 style={{
-                  left: avatarPos.x + (GRID_SIZE * TILE_SIZE) / 2,
-                  top: avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2,
-                  width: TILE_SIZE,
-                  height: TILE_SIZE,
-                  zIndex: 100 + Math.floor(avatarPos.y + (GRID_SIZE * TILE_SIZE) / 2)
+                  left: Math.round(avatarPos.x + (currentSize * TILE_SIZE) / 2 + 16),
+                  top: Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2 + 16),
+                  width: TILE_SIZE, height: TILE_SIZE,
+                  zIndex: 100 + Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2 + 16),
                 }}
               >
-                <div className="relative" style={{ transform: 'translate(-50%, -85%)' }}>
+                <div className="relative" style={{ 
+                  transform: 'translate(-50%, -100%) translateZ(0)', 
+                  transformOrigin: 'bottom center' 
+                }}>
                   <PlayerSprite 
                     direction={facing as any} 
                     isWalking={isWalking} 
-                    scale={1.2 * (villageZoom / 2.5)} 
                   />
                 </div>
               </div>
 
-              {/* NPCs Rendering */}
+              {/* NPC Sprites */}
               {npcs.map(npc => {
-                const worldPos = gridToWorld(npc.c, npc.r);
+                const rx = Math.round(npc.x + (currentSize * TILE_SIZE) / 2 + 16);
+                const ry = Math.round(npc.y + (currentSize * TILE_SIZE) / 2 + 16);
+                
                 return (
                   <div 
                     key={npc.id}
-                    className="absolute transition-all duration-500 ease-linear flex items-center justify-center"
+                    className="absolute flex items-center justify-center transition-all duration-75"
                     style={{
-                      left: worldPos.x + (GRID_SIZE * TILE_SIZE) / 2,
-                      top: worldPos.y + (GRID_SIZE * TILE_SIZE) / 2,
-                      width: TILE_SIZE,
-                      height: TILE_SIZE,
-                      zIndex: 100 + Math.floor(worldPos.y + (GRID_SIZE * TILE_SIZE) / 2)
+                      left: rx, top: ry,
+                      width: TILE_SIZE, height: TILE_SIZE,
+                      zIndex: 100 + ry,
                     }}
                   >
-                    <div className="relative" style={{ transform: 'translate(-50%, -85%)' }}>
+                    <div className="relative" style={{ 
+                      transform: 'translate(-50%, -100%) translateZ(0)', 
+                      transformOrigin: 'bottom center' 
+                    }}>
                        <div 
                          style={{
-                           width: '32px',
-                           height: '32px',
-                           transform: `scale(${1.2 * (villageZoom / 2.5)})`,
+                           width: '32px', height: '32px',
+                           transform: 'translateZ(0)',
+                           transformOrigin: 'bottom center',
                            imageRendering: 'pixelated',
+                           // @ts-ignore
+                           imageRendering: 'crisp-edges',
                            backgroundImage: `url(/images/${npc.char === 'racoon' ? 'work-racoon.png' : 'vac-fox.png'})`,
                            backgroundSize: '192px 128px',
-                           backgroundPositionX: (npc.path?.length > 0 || npc.status === 'working') ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` : '0px',
+                           backgroundPositionX: (npc.isWalking || npc.status === 'working') ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` : '0px',
                            backgroundPositionY: `-${(npc.facing === 'up' ? 3 : npc.facing === 'left' ? 1 : npc.facing === 'right' ? 2 : 0) * 32}px`,
-                           filter: 'drop-shadow(2px 2px 0px rgba(0,0,0,0.2))'
                          }}
                        />
-                       {npc.status === 'working' && (
-                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[8px] bg-[#3e2723] text-white px-2 py-1 rounded border border-[#e9d681] animate-pulse">
-                           WORKING...
-                         </div>
-                       )}
                        {npc.status === 'staying' && (
-                         <div className="absolute -top-8 left-1/2 -translate-x-1/2 text-[8px] bg-green-600 text-white px-2 py-1 rounded border border-white animate-bounce">
-                           RESTING
-                         </div>
+                         <div className="absolute -top-12 left-1/2 -translate-x-1/2 text-[8px] bg-green-600 text-white px-2 py-1 rounded border border-white animate-bounce">RESTING</div>
                        )}
                     </div>
                   </div>
@@ -716,503 +583,77 @@ const TownView = ({
             </>
           )}
 
-          {/* Ghost Building */}
-          {isPlacing && pendingBuilding && hoverTile && (
+          {isPlacing && pendingBuilding && mousePos && (
              <div 
-               className="absolute pointer-events-none flex flex-col items-center justify-center transition-all duration-75"
+               className="absolute pointer-events-none flex flex-col items-center justify-center"
                style={{
-                 left: mousePos.x + (GRID_SIZE * TILE_SIZE) / 2,
-                 top: mousePos.y + (GRID_SIZE * TILE_SIZE) / 2,
-                 transform: 'translate(-50%, -85%)',
+                 left: Math.round(mousePos.x + (currentSize * TILE_SIZE) / 2 + 16),
+                 top: Math.round(mousePos.y + (currentSize * TILE_SIZE) / 2 + 16),
+                 transform: 'translate(-50%, -100%)',
                  zIndex: 100,
                  opacity: 0.6
                }}
              >
                {(() => {
-                 const tileType = currentMap[hoverTile.r][hoverTile.c];
-                 
-                 const checkOccupied = (c: number, r: number) => 
-                   allObstacles.some(ob => 
-                     ob.isMultiTile 
-                       ? ob.tiles.some((t: any) => t.r === r && t.c === c)
-                       : ob.r === r && ob.c === c
-                   );
-
-                 const pendingTiles = getBuildingTiles(pendingBuilding.type, hoverTile.c, hoverTile.r);
-                 
-                 const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
-                 const isTerrainValid = pendingTiles.every(t => {
-                   const tType = currentMap[t.r]?.[t.c];
-                   return pendingBuilding.type === 'garden-bed' 
-                     ? tType === TILE_TYPES.GRASS 
-                     : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
-                 });
-                 
-                 const isValid = isTerrainValid && !isOccupied;
-
+                 const gridPos = worldToGrid(mousePos.x, mousePos.y, currentSize);
+                 const pendingTiles = getBuildingTiles(pendingBuilding.type, gridPos.c, gridPos.r);
                  return (
                    <div className="relative">
-                      {/* Ghost footprint highlights */}
                       {pendingTiles.map((t, idx) => {
-                         const tOccupied = checkOccupied(t.c, t.r);
                          const tType = currentMap[t.r]?.[t.c];
-                         const tTerrainValid = pendingBuilding.type === 'garden-bed' 
-                            ? tType === TILE_TYPES.GRASS 
-                            : (tType === TILE_TYPES.GRASS || tType === TILE_TYPES.SAND);
-                         
-                         const tValid = tTerrainValid && !tOccupied;
-
-                         // Calculate relative offset from anchor (hoverTile)
-                         const dx = t.c - hoverTile.c;
-                         const dy = t.r - hoverTile.r;
-
+                         const tTerrainValid = tType === TILE_TYPES.GRASS;
+                         const dx = t.c - gridPos.c;
+                         const dy = t.r - gridPos.r;
                          return (
-                           <div 
-                             key={idx}
-                             className={`absolute w-8 h-8 rounded-sm ${tValid ? 'bg-green-500/30' : 'bg-red-500/50'} border border-white/20`}
-                             style={{
-                               transform: `translate(${dx * 32}px, ${dy * 32}px)`
-                             }}
-                           />
+                           <div key={idx} className={`absolute w-8 h-8 rounded-sm ${tTerrainValid ? 'bg-green-500/30' : 'bg-red-500/50'} border border-white/20`} style={{ transform: `translate(${dx * 32}px, ${dy * 32}px)` }} />
                          );
                       })}
-                      
-                      <div className="relative z-10 pointer-events-none opacity-80">
+                      <div className="relative z-10 opacity-80">
                         {pendingBuilding.type === 'garden-bed' ? (
-                        <img 
-                          src="/images/garden-bed-wheat-1.png"
-                          alt="Ghost Garden Bed"
-                          className="w-10 h-10 object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'garden-tree' ? (
-                        <img 
-                          src="/images/garden-apple-1.png"
-                          alt="Ghost Garden Tree"
-                          className="w-10 h-10 object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'starter-house' ? (
-                        <img 
-                          src="/images/house.png"
-                          alt="Ghost House"
-                          className="w-[72px] h-[72px] object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'mini-house' ? (
-                        <img 
-                          src="/images/mini-house.png"
-                          alt="Ghost Mini House"
-                          className="w-[72px] h-[72px] object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'shop' ? (
-                        <img 
-                          src="/images/Shop.png"
-                          alt="Ghost Shop"
-                          className="w-[72px] h-[72px] object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'market' ? (
-                        <img 
-                          src="/images/Market.png"
-                          alt="Ghost Market"
-                          className="w-[72px] h-[96px] object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : pendingBuilding.type === 'hotel' ? (
-                        <img 
-                          src="/images/Storage.png"
-                          alt="Ghost Hotel"
-                          className="w-[72px] h-[72px] object-contain"
-                          style={{ 
-                            imageRendering: 'pixelated'
-                          }}
-                        />
-                      ) : (
-                        <span className="text-4xl">
-                          {getBuildingEmoji(pendingBuilding.type)}
-                        </span>
-                      )}
+                          <img src="/images/garden-bed-wheat-1.png" alt="Ghost" className="w-10 h-10 object-contain" />
+                        ) : pendingBuilding.type === 'garden-tree' ? (
+                          <img src="/images/garden-apple-1.png" alt="Ghost" className="w-10 h-10 object-contain" />
+                        ) : pendingBuilding.type === 'starter-house' ? (
+                          <img src="/images/house.png" alt="Ghost" className="w-[72px] h-[72px] object-contain" />
+                        ) : pendingBuilding.type === 'mini-house' ? (
+                          <img src="/images/mini-house.png" alt="Ghost" className="w-[72px] h-[72px] object-contain" />
+                        ) : pendingBuilding.type === 'shop' ? (
+                          <img src="/images/Shop.png" alt="Ghost" className="w-[32px] h-[32px] object-contain" />
+                        ) : pendingBuilding.type === 'market' ? (
+                          <img src="/images/Market.png" alt="Ghost" className="w-[72px] h-[96px] object-contain" />
+                        ) : pendingBuilding.type === 'hotel' ? (
+                          <img src="/images/Storage.png" alt="Ghost" className="w-[72px] h-[72px] object-contain" />
+                        ) : (
+                          <span className="text-4xl">{getBuildingEmoji(pendingBuilding.type)}</span>
+                        )}
+                      </div>
                    </div>
-                 </div>
-               );
-             })()}
+                 );
+               })()}
              </div>
           )}
-
         </div>
       </div>
 
-      {/* Produce Selection Menu Overlay */}
-      {selectedBedForMenu && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedBedForMenu(null);
-                }}
-                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
-              >
-                X
-              </button>
-              {(() => {
-                const b = buildings.find((b: any) => b.id === selectedBedForMenu);
-                if (!b) return null;
-                const title = b.type.replace('-', ' ').toUpperCase();
-                return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
-              })()}
-              
-              <div className="grid grid-cols-1 gap-4 w-full">
-                {(() => {
-                  const b = buildings.find((b: any) => b.id === selectedBedForMenu);
-                  const items = b?.type === 'garden-tree'
-                    ? [
-                        { type: 'apple', name: 'APPLE', icon: '/images/garden-apple.png' },
-                        { type: 'peach', name: 'PEACH', icon: '/images/garden-peach.png' },
-                        { type: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry.png' }
-                      ]
-                    : [
-                        { type: 'wheat', name: 'WHEAT', icon: '/images/garden-wheat.png' },
-                        { type: 'tomato', name: 'TOMATO', icon: '/images/garden-tomato.png' },
-                        { type: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-pumpkin.png' }
-                      ];
-                  return items.map(p => (
-                    <button
-                      key={p.type}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        interactWithBuilding(selectedBedForMenu, 'select-produce', { produceType: p.type });
-                        setSelectedBedForMenu(null);
-                      }}
-                      className="flex items-center gap-4 btn-off-white p-4 text-left"
-                    >
-                      <img src={p.icon} alt={p.name} className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
-                      <span className="text-[#3e2723] text-[10px]">{p.name}</span>
-                    </button>
-                  ));
-                })()}
-
-
-              </div>
-           </div>
-        </div>
-      )}
-      {/* Action Menu Overlay (Levels 2-5 and House) */}
-      {selectedBedForActionMenu && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in duration-200">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedBedForActionMenu(null);
-                }}
-                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
-              >
-                X
-              </button>
-              {(() => {
-                const b = buildings.find((b: any) => b.id === selectedBedForActionMenu);
-                if (!b) return null;
-                let title = b.type.replace('-', ' ').toUpperCase();
-                if (b.type === 'garden-bed' || b.type === 'garden-tree') {
-                  if (b.growthState?.produceType) {
-                    title = b.growthState.produceType.toUpperCase();
-                  }
-                }
-                return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
-              })()}
-              
-              <div className="grid grid-cols-1 gap-4 w-full">
-                {(() => {
-                  const b = buildings.find((b: any) => b.id === selectedBedForActionMenu);
-                  if (!b) return null;
-                  const gs = b.growthState;
-
-                  return (
-                    <>
-                      {/* Garden Bed or Tree Specific Actions */}
-                      {(b.type === 'garden-bed' || b.type === 'garden-tree') && gs && (
-                        <>
-                          {gs.currentLevel >= 2 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                interactWithBuilding(b.id, 'clear');
-                                setSelectedBedForActionMenu(null);
-                              }}
-                              className="flex items-center gap-4 btn-off-white p-4 text-left"
-                            >
-                              <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Remove" />
-                              <span className="text-[#3e2723] text-[10px]">{gs.currentLevel === 5 ? 'REMOVE (DEAD)' : 'REMOVE'}</span>
-                            </button>
-                          )}
-
-                          {gs.currentLevel === 3 && Date.now() >= (gs.waterNeededAt || 0) && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                interactWithBuilding(b.id, 'water');
-                                setSelectedBedForActionMenu(null);
-                              }}
-                              className="flex items-center gap-4 btn-off-white p-4 text-left"
-                            >
-                              <img src="/images/garden-watering-can.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Water" />
-                              <span className="text-[#3e2723] text-[10px]">WATER</span>
-                            </button>
-                          )}
-
-                          {gs.currentLevel === 4 && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                interactWithBuilding(b.id, 'harvest');
-                                setSelectedBedForActionMenu(null);
-                              }}
-                              className="flex items-center gap-4 btn-off-white p-4 text-left"
-                            >
-                              <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
-                              <span className="text-[#3e2723] text-[10px]">PICK</span>
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      {/* Starter House Specific Actions */}
-                      {b.type === 'starter-house' && (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              interactWithBuilding(b.id, 'sleep');
-                              setSelectedBedForActionMenu(null);
-                            }}
-                            className="flex items-center gap-4 btn-off-white p-4 text-left"
-                          >
-                            <div className="text-3xl">😴</div>
-                            <span className="text-[#3e2723] text-[10px]">GO TO SLEEP</span>
-                          </button>
-                        </>
-                      )}
-
-                      {/* Mini House Specific Actions */}
-                      {b.type === 'mini-house' && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // No specific action logic yet, just visual for now
-                            setSelectedBedForActionMenu(null);
-                          }}
-                          className="flex items-center gap-4 btn-off-white p-4 text-left"
-                        >
-                          <img src="/images/work-racoon.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Worker" />
-                          <span className="text-[#3e2723] text-[10px]">INVITE WORKER</span>
-                        </button>
-                      )}
-
-                      {/* Shop Specific Actions */}
-                      {b.type === 'shop' && (
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             setShopOpen(true);
-                             setSelectedBedForActionMenu(null);
-                           }}
-                           className="flex items-center gap-4 btn-off-white p-4 text-left"
-                         >
-                           <img src="/images/Shop.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Shop" />
-                           <span className="text-[#3e2723] text-[10px]">OPEN SHOP</span>
-                         </button>
-                      )}
-
-                      {/* Market Specific Actions */}
-                      {b.type === 'market' && (
-                         <button
-                           onClick={(e) => {
-                             e.stopPropagation();
-                             setMarketOpen(true);
-                             setSelectedBedForActionMenu(null);
-                           }}
-                           className="flex items-center gap-4 btn-off-white p-4 text-left"
-                         >
-                           <img src="/images/Market.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Market" />
-                           <span className="text-[#3e2723] text-[10px]">OPEN MARKET</span>
-                         </button>
-                      )}
-
-
-                    </>
-                  );
-                })()}
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Tree Collection Confirmation Modal */}
-      {confirmTreeCollect && (
-        <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[300px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmTreeCollect(null);
-                }}
-                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
-              >
-                X
-              </button>
-              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">WOOD READY</h3>
-              <div className="flex flex-col gap-3 w-full justify-center">
-                  <button 
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        interactWithBuilding(confirmTreeCollect, 'collect-default-wood');
-                        setConfirmTreeCollect(null);
-                    }}
-                    className="flex items-center gap-4 btn-off-white p-4 text-left w-full"
-                  >
-                    <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Pick" />
-                    <span className="text-[#3e2723] text-[10px]">PICK</span>
-                  </button>
-              </div>
-           </div>
-        </div>
-      )}
-      {/* Sleeping Overlay */}
       {isInsideHouse && (
-        <div className="fixed inset-0 z-[6000] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md pointer-events-auto font-['Press_Start_2P'] animate-[fade-in_0.5s_ease-out]">
-           <div className="p-12 flex flex-col items-center gap-10 bg-[#fcfaf8] rounded-3xl shadow-[0_16px_0_0_#d1c4b9] border-8 border-[#8d6e63]">
-              <img src="/images/sleep.png" className="w-24 h-24 animate-bounce object-contain" alt="Sleeping" />
-              <div className="flex flex-col items-center gap-6">
-                <h2 className="text-[#3e2723] text-2xl animate-pulse">SLEEPING...</h2>
-                <div className="bg-[#3e2723] text-white px-6 py-3 rounded-xl text-[14px]">
-                  {Math.floor(minutesSlept / 60)}h {minutesSlept % 60}m ELAPSED
-                </div>
-                <p className="text-[#8b7a6d] text-[10px] text-center max-w-[240px] leading-loose opacity-70">
-                  TIME FLOWS FAST (1s = 1m)
-                </p>
+        <div className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-black/60 backdrop-blur-md font-['Press_Start_2P'] p-4">
+           <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
+              <img src="/images/sleep.png" className="w-16 h-16 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Sleeping" />
+              <div className="flex flex-col items-center gap-4">
+                <h2 className="text-[#3e2723] text-[12px] uppercase text-center">SLEEPING...</h2>
+                <div className="bg-[#3e2723] text-white px-4 py-2 rounded-xl text-[10px]">{Math.floor(minutesSlept / 60)}h {minutesSlept % 60}m ELAPSED</div>
               </div>
-              
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const house = buildings.find((b: any) => b.id.includes('house')); // Flexible search
-                  const h = house || buildings.find((b: any) => b.type === 'starter-house');
+              <button 
+                onClick={() => {
+                  const h = buildings.find((b: any) => b.type === 'starter-house');
                   if (h) interactWithBuilding(h.id, 'wake');
-                }}
-                className="btn-off-white px-10 py-5 text-[14px] font-bold shadow-xl active:translate-y-1 active:shadow-none transition-all"
+                }} 
+                className="w-full py-4 text-[10px] btn-off-white shadow-[0_4px_0_0_#d1c4b9]"
               >
                 WAKE UP
               </button>
            </div>
         </div>
-      )}
-      {/* Shop UI */}
-      {shopOpen && (
-        <ShopUI 
-          resources={resources} 
-          onBuy={(item, cost, amount) => handleBuy(item, cost, amount)} 
-          onClose={() => setShopOpen(false)} 
-        />
-      )}
-
-      {/* Expansion Tooltip */}
-      {hoverTile && !isPlacing && !isInsideHouse && currentMap[hoverTile.r]?.[hoverTile.c] === TILE_TYPES.SAND && (
-        <div 
-          className="absolute z-[4000] pointer-events-none flex flex-col items-center justify-center transition-all duration-75"
-          style={{
-            left: gridToWorld(hoverTile.c, hoverTile.r).x + (GRID_SIZE * TILE_SIZE) / 2,
-            top: gridToWorld(hoverTile.c, hoverTile.r).y + (GRID_SIZE * TILE_SIZE) / 2 - 40,
-            transform: 'translate(-50%, -100%)'
-          }}
-        >
-          {(() => {
-             const playerGrid = worldToGrid(avatarPos.x, avatarPos.y);
-             const dist = Math.sqrt(Math.pow(playerGrid.c - hoverTile.c, 2) + Math.pow(playerGrid.r - hoverTile.r, 2));
-             if (dist <= 2.5) {
-               return (
-                 <div className="bg-[#3e2723] text-white px-3 py-2 rounded-lg text-[8px] font-['Press_Start_2P'] border-2 border-[#e9d681] shadow-xl animate-bounce">
-                   EXPAND ISLAND: {expansionCost}🪙
-                 </div>
-               );
-             }
-             return null;
-          })()}
-        </div>
-      )}
-
-      {/* Expansion Confirmation Modal */}
-      {expansionConfirm && (
-        <div className="fixed inset-0 z-[6000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
-           <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
-              <button 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setExpansionConfirm(null);
-                }}
-                className="absolute top-4 right-4 w-8 h-8 btn-off-white flex items-center justify-center text-[10px]"
-              >
-                X
-              </button>
-              <h3 className="text-[#3e2723] text-[12px] uppercase text-center">EXPAND ISLAND?</h3>
-              
-              <div className="flex flex-col items-center gap-4 text-center">
-                <div className="text-[#8b7a6d] text-[8px] leading-relaxed">
-                  CONVERT SAND TO GRASS AND EXTEND THE BEACH.
-                </div>
-                <div className="flex items-center gap-2 bg-[#e6ded5] px-4 py-2 rounded-full">
-                   <span className="text-[#3e2723] text-[10px]">COST:</span>
-                   <img src="/images/tools-coins.png" className="w-4 h-4" />
-                   <span className={`text-[10px] ${(resources.coins || 0) >= expansionCost ? 'text-[#3e2723]' : 'text-red-600'}`}>
-                     {expansionCost}
-                   </span>
-                </div>
-              </div>
-
-              <button 
-                onClick={(e) => {
-                    e.stopPropagation();
-                    if (expandLand(expansionConfirm.c, expansionConfirm.r)) {
-                      // Success
-                      setExpansionConfirm(null);
-                      // Visual pop effect could be added here if we had a dedicated effect system
-                    } else {
-                      // Fail feedback
-                      alert("Not enough coins!");
-                    }
-                }}
-                disabled={(resources.coins || 0) < expansionCost}
-                className={`w-full py-4 text-[10px] btn-off-white ${
-                   (resources.coins || 0) < expansionCost ? 'opacity-50 cursor-not-allowed grayscale' : ''
-                }`}
-              >
-                CONFIRM EXPANSION
-              </button>
-           </div>
-        </div>
-      )}
-
-      {/* Market UI */}
-      {marketOpen && (
-        <MarketUI 
-          inventory={inventory} 
-          onSell={(item, price, amount) => handleSell(item, price, amount)} 
-          onClose={() => setMarketOpen(false)} 
-        />
       )}
     </div>
   );

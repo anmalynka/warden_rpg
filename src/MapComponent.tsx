@@ -43,7 +43,7 @@ const MapComponent = ({
 
   const updateMarkerToCat = (el: HTMLElement) => {
     el.innerHTML = `
-      <div style="width: 32px; height: 32px; transform: scale(3.5); transform-origin: center center; overflow: hidden; position: relative;">
+      <div style="width: 32px; height: 32px; transform-origin: center center; overflow: hidden; position: relative; image-rendering: pixelated; image-rendering: crisp-edges;">
         <style>
           @keyframes map-cat-walk {
             from { background-position-x: 0px; }
@@ -56,8 +56,10 @@ const MapComponent = ({
           background-repeat: no-repeat; 
           position: absolute; 
           image-rendering: pixelated; 
+          image-rendering: crisp-edges;
           background-position-y: 0px; 
           animation: map-cat-walk 0.8s steps(6) infinite;
+          transform: translateZ(0);
         "></div>
       </div>
     `;
@@ -710,6 +712,16 @@ const MapComponent = ({
                 className="w-12 h-12 object-contain grayscale opacity-50" 
                 alt="Ghost Garden Tree"
               />
+            ) : pendingBuilding.type === 'starter-house' ? (
+              <img src="/images/house.png" className="w-12 h-12 object-contain grayscale opacity-50" alt="Ghost House" />
+            ) : pendingBuilding.type === 'mini-house' ? (
+              <img src="/images/mini-house.png" className="w-12 h-12 object-contain grayscale opacity-50" alt="Ghost Mini House" />
+            ) : pendingBuilding.type === 'shop' ? (
+              <img src="/images/Shop.png" className="w-12 h-12 object-contain grayscale opacity-50" alt="Ghost Shop" />
+            ) : pendingBuilding.type === 'market' ? (
+              <img src="/images/Market.png" className="w-12 h-12 object-contain grayscale opacity-50" alt="Ghost Market" />
+            ) : pendingBuilding.type === 'hotel' ? (
+              <img src="/images/Storage.png" className="w-12 h-12 object-contain grayscale opacity-50" alt="Ghost Hotel" />
             ) : (
               <span className="text-5xl">
                 {getBuildingEmoji(pendingBuilding.type)}

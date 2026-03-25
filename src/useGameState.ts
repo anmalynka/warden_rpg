@@ -1,20 +1,27 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as turf from '@turf/turf';
-import { generateIslandMap, TILE_TYPES, GRID_SIZE } from './MapConstants';
+import { generateIslandMap, TILE_TYPES, GRID_SIZE, INITIAL_GRID_SIZE, TILE_SIZE, getBuildingTiles, gridToWorldBuilding, gridToWorld, worldToGrid } from './MapConstants';
 
 export const useGameState = () => {
   // 1. ALL USESTATE AT THE TOP
   const [islandMap, setIslandMap] = useState<number[][]>(() => {
     const saved = localStorage.getItem('warden_map');
-    return saved ? JSON.parse(saved) : generateIslandMap();
+    const map = saved ? JSON.parse(saved) : generateIslandMap(INITIAL_GRID_SIZE);
+    return map;
   });
+
+  // Local helpers for grid conversions (avoiding scope issues in closures)
+  const gridToWorldLocal = useCallback((c: number, r: number) => gridToWorld(c, r, islandMap.length), [islandMap.length]);
+  const worldToGridLocal = useCallback((x: number, y: number) => worldToGrid(x, y, islandMap.length), [islandMap.length]);
   const [expansionCost, setExpansionCost] = useState(() => {
+    if (!localStorage.getItem('warden_map')) return 500;
     const saved = localStorage.getItem('warden_expansion_cost');
     return saved ? parseInt(saved) : 500;
   });
 
   const [resources, setResources] = useState(() => {
     const saved = localStorage.getItem('warden_resources');
+    if (!localStorage.getItem('warden_map')) return { wood: 50, metal: 20, coins: 100 };
     return saved ? JSON.parse(saved) : {
       wood: 50,
       metal: 20,
@@ -71,6 +78,19 @@ export const useGameState = () => {
   // NPCs State
   const [npcs, setNpcs] = useState<any[]>(() => {
     const saved = localStorage.getItem('warden_npcs');
+    const parsed = saved ? JSON.parse(saved) : [];
+    // Migration: ensure NPCs have x, y, isWalking, facing
+    return parsed.map((n: any) => {
+      if (n.x === undefined || n.y === undefined) {
+        const worldPos = gridToWorldLocal(n.c, n.r);
+        return { ...n, x: worldPos.x, y: worldPos.y, isWalking: false, facing: 'down' };
+      }
+      return n;
+    });
+  });
+
+  const [removedDecorations, setRemovedDecorations] = useState<string[]>(() => {
+    const saved = localStorage.getItem('warden_removed_decorations');
     return saved ? JSON.parse(saved) : [];
   });
 
@@ -81,10 +101,20 @@ export const useGameState = () => {
     if (start.c === end.c && start.r === end.r) return [];
     
     // Grid bounds
-    const gridLimit = GRID_SIZE;
+    const currentSize = islandMap.length;
+    const gridLimit = currentSize;
 
     const queue: any[] = [[start]];
     const visited = new Set([`${start.c},${start.r}`]);
+
+    // Get current buildings for collision
+    const buildingPositions = new Set<string>();
+    buildings.forEach(b => {
+      const gridPos = b.growthState?.coordinates || worldToGrid(b.offset.x, b.offset.y, currentSize);
+      getBuildingTiles(b.type, gridPos.c, gridPos.r).forEach(t => {
+        buildingPositions.add(`${t.c},${t.r}`);
+      });
+    });
 
     while (queue.length > 0) {
       const path = queue.shift();
@@ -104,17 +134,20 @@ export const useGameState = () => {
       for (const next of neighbors) {
         const key = `${next.c},${next.r}`;
         // Bounds check & Water check
-        const isWalkable = next.c >= 0 && next.c < gridLimit && next.r >= 0 && next.r < gridLimit && 
+        const isTerrainWalkable = next.c >= 0 && next.c < gridLimit && next.r >= 0 && next.r < gridLimit && 
                            (currentIslandMap[next.r][next.c] === TILE_TYPES.GRASS || currentIslandMap[next.r][next.c] === TILE_TYPES.SAND);
         
-        if (isWalkable && !visited.has(key)) {
+        // Building collision check (except for target tile)
+        const isOccupied = buildingPositions.has(key) && !(next.c === end.c && next.r === end.r);
+
+        if (isTerrainWalkable && !isOccupied && !visited.has(key)) {
           visited.add(key);
           queue.push([...path, next]);
         }
       }
     }
     return null; // No path found
-  }, []);
+  }, [buildings]);
 
   const moveAvatar = useCallback((dx: number, dy: number) => {
     if (isInsideHouse) return; // Cannot move while inside
@@ -156,14 +189,12 @@ export const useGameState = () => {
     });
 
     setIslandMap(prevMap => {
-      const newMap = prevMap.map(row => [...row]);
+      let currentSize = prevMap.length;
+      let map = prevMap.map(row => [...row]);
       
-      // 1. Identify 8 tiles to convert to GRASS (Blob Growth)
-      // Start with clicked tile
+      // 1. Zone 1: Identify 8 tiles to convert to GRASS (Blob Growth)
       const tilesToConvert: {c: number, r: number}[] = [{c: startC, r: startR}];
       const visited = new Set([`${startC},${startR}`]);
-      
-      // Simple BFS to find 7 more neighbors (SAND or WATER)
       const queue = [{c: startC, r: startR}];
       
       while (queue.length > 0 && tilesToConvert.length < 8) {
@@ -174,11 +205,10 @@ export const useGameState = () => {
         ];
 
         for (const n of neighbors) {
-          if (n.c >= 0 && n.c < GRID_SIZE && n.r >= 0 && n.r < GRID_SIZE) {
+          if (n.c >= 0 && n.c < currentSize && n.r >= 0 && n.r < currentSize) {
              const key = `${n.c},${n.r}`;
              if (!visited.has(key)) {
-               // Prefer SAND then WATER, or just any valid expansion target
-               const type = newMap[n.r][n.c];
+               const type = map[n.r][n.c];
                if (type === TILE_TYPES.SAND || type === TILE_TYPES.WATER) {
                  visited.add(key);
                  tilesToConvert.push(n);
@@ -190,42 +220,84 @@ export const useGameState = () => {
         }
       }
 
-      // Connectivity Check (Simplified: We assume expansion from existing land is connected)
       // Convert to GRASS
       tilesToConvert.forEach(t => {
-        newMap[t.r][t.c] = TILE_TYPES.GRASS;
+        if (t.r > 0) map[t.r][t.c] = TILE_TYPES.GRASS;
       });
 
-      // 2. Dynamic Beach Generation
-      // For every new grass tile touching water, convert 0-3 adjacent water to SAND
-      tilesToConvert.forEach(t => {
-        const neighbors = [
-          { c: t.c + 1, r: t.r }, { c: t.c - 1, r: t.r },
-          { c: t.c, r: t.r + 1 }, { c: t.c, r: t.r - 1 }
-        ];
-        
-        // Find adjacent water tiles
-        const waterNeighbors = neighbors.filter(n => 
-          n.c >= 0 && n.c < GRID_SIZE && n.r >= 0 && n.r < GRID_SIZE && 
-          newMap[n.r][n.c] === TILE_TYPES.WATER
-        );
-
-        if (waterNeighbors.length > 0) {
-           // Convert 0 to 3 of them to SAND
-           const count = Math.floor(Math.random() * 4); // 0, 1, 2, or 3
-           // Shuffle to pick random ones
-           const shuffled = waterNeighbors.sort(() => 0.5 - Math.random());
-           
-           for (let i = 0; i < Math.min(count, shuffled.length); i++) {
-             const n = shuffled[i];
-             // Ensure we only convert WATER to SAND on the "outside"
-             // This is naturally handled by only selecting WATER neighbors
-             newMap[n.r][n.c] = TILE_TYPES.SAND;
-           }
+      // 2. Zone 2: Dynamic Beach Generation: Only where Grass meets Water
+      for (let r = 1; r < currentSize; r++) {
+        for (let c = 0; c < currentSize; c++) {
+          if (map[r][c] === TILE_TYPES.GRASS) {
+            const neighbors = [
+              { c: c + 1, r }, { c: c - 1, r },
+              { c, r: r + 1 }, { c, r: r - 1 }
+            ];
+            neighbors.forEach(n => {
+              if (n.c >= 0 && n.c < currentSize && n.r >= 0 && n.r < currentSize && map[n.r][n.c] === TILE_TYPES.WATER) {
+                map[n.r][n.c] = TILE_TYPES.SAND;
+              }
+            });
+          }
         }
-      });
+      }
 
-      return newMap;
+      // 3. Zone 3: The Deep Water Buffer (Dynamic Grid Growth)
+      // Check if any Sand or Grass is within 5 tiles of the edge
+      let needsGrowth = false;
+      let growthDirection = { top: 0, bottom: 0, left: 0, right: 0 };
+
+      for (let r = 0; r < currentSize; r++) {
+        for (let c = 0; c < currentSize; c++) {
+          if (map[r][c] === TILE_TYPES.GRASS || map[r][c] === TILE_TYPES.SAND) {
+            if (r < 8) growthDirection.top = Math.max(growthDirection.top, 8 - r);
+            if (r > currentSize - 9) growthDirection.bottom = Math.max(growthDirection.bottom, r - (currentSize - 9));
+            if (c < 8) growthDirection.left = Math.max(growthDirection.left, 8 - c);
+            if (c > currentSize - 9) growthDirection.right = Math.max(growthDirection.right, c - (currentSize - 9));
+          }
+        }
+      }
+
+      if (growthDirection.top > 0 || growthDirection.bottom > 0 || growthDirection.left > 0 || growthDirection.right > 0) {
+        const newSizeH = currentSize + growthDirection.left + growthDirection.right;
+        const newSizeV = currentSize + growthDirection.top + growthDirection.bottom;
+        
+        // We want to keep it square if possible, or just expand as needed
+        const newSize = Math.max(newSizeH, newSizeV);
+        const padTop = Math.floor((newSize - currentSize) / 2);
+        const padLeft = Math.floor((newSize - currentSize) / 2);
+        
+        const newMap = Array(newSize).fill(0).map(() => Array(newSize).fill(TILE_TYPES.WATER));
+        for (let r = 0; r < currentSize; r++) {
+          for (let c = 0; c < currentSize; c++) {
+            newMap[r + padTop][c + padLeft] = map[r][c];
+          }
+        }
+
+        // Adjust Building and NPC offsets to keep them in place relative to the island
+        setBuildings(prev => prev.map(b => ({
+          ...b,
+          offset: {
+            x: b.offset.x - (padLeft * TILE_SIZE),
+            y: b.offset.y - (padTop * TILE_SIZE)
+          }
+        })));
+
+        setNpcs(prev => prev.map(n => ({
+          ...n,
+          c: n.c + padLeft,
+          r: n.r + padTop,
+          x: n.x, // We'll need to sync x/y later or just let them snap
+          y: n.y
+        })));
+        
+        map = newMap;
+      }
+
+      // Ensure first row is always water
+      map[0] = Array(map.length).fill(TILE_TYPES.WATER);
+
+      return map;
     });
 
     return true;
@@ -299,13 +371,31 @@ export const useGameState = () => {
 
   const interactWithBuilding = useCallback((id: string, action: string, data?: any, onHarvest?: (item: string, count: number) => void) => {
     // Handle Default Trees (Coordinate ID)
-    if (id.startsWith('tree-') && action === 'collect-default-wood') {
-      const cooldown = treeCooldowns[id] || 0;
-      if (Date.now() >= cooldown) {
-        setResources(prev => ({ ...prev, wood: (prev.wood || 0) + 1 }));
-        setTreeCooldowns(prev => ({ ...prev, [id]: Date.now() + 43200000 })); // 12 hours
-        onHarvest?.('wood', 1);
+    if (id.startsWith('tree-')) {
+      if (action === 'collect-default-wood') {
+        const cooldown = treeCooldowns[id] || 0;
+        if (Date.now() >= cooldown) {
+          setResources(prev => ({ ...prev, wood: (prev.wood || 0) + 1 }));
+          setTreeCooldowns(prev => ({ ...prev, [id]: Date.now() + 43200000 })); // 12 hours
+          onHarvest?.('wood', 1);
+        }
+        return;
       }
+      if (action === 'remove-decoration') {
+        setRemovedDecorations(prev => [...prev, id]);
+        return;
+      }
+    }
+
+    if (action === 'leave-vacationer') {
+      setNpcs(prev => {
+        const hotelGuests = prev.filter(n => n.type === 'vacationer' && n.targetHotelId === id && n.status !== 'leaving');
+        if (hotelGuests.length === 0) return prev;
+        
+        // Find the one that's been staying the longest (or just the first one in the list)
+        const guestToLeave = hotelGuests[0];
+        return prev.map(n => n.id === guestToLeave.id ? { ...n, status: 'leaving', path: [] } : n);
+      });
       return;
     }
 
@@ -322,6 +412,7 @@ export const useGameState = () => {
             growthState: {
               ...gs,
               produceType: data.produceType,
+              lastProduceType: data.produceType, // Store for NPC replanting
               currentLevel: 2,
               startTime: now,
               lastUpdate: now
@@ -358,12 +449,16 @@ export const useGameState = () => {
                 if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
                 return next;
             });
-            // Add Inventory
+            // Add Inventory & Resources (User request: 50 of each)
             const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
             setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
+            setResources(prev => ({
+              ...prev,
+              wood: (prev.wood || 0) + 50,
+              metal: (prev.metal || 0) + 50,
+              coins: (prev.coins || 0) + 50
+            }));
             onHarvest?.(produce, 1);
-            
-            setResources((r: any) => ({ ...r, coins: r.coins + 20 }));
             
             // Revert to level 3 for trees, level 1 for beds
             if (b.type === 'garden-tree') {
@@ -418,6 +513,15 @@ export const useGameState = () => {
             };
           }
           break;
+        case 'invite-worker':
+         return { ...b, hasWorkerRequested: true };
+        case 'invite-vacationer':
+         return { ...b, pendingVacationers: (b.pendingVacationers || 0) + 1 };
+        case 'leave-worker':          // We handle NPC removal in the NPC useEffect
+          return { ...b, hasWorkerRequested: false };
+        case 'move':
+          // Handled by UI state (entering placement mode)
+          return b;
         case 'remove':
           return null;
         case 'sleep':
@@ -444,145 +548,276 @@ export const useGameState = () => {
       setNpcs(prevNpcs => {
         let updatedNpcs = [...prevNpcs];
         let changed = false;
+        const currentSize = islandMap.length;
 
         // Sync Workers with Mini-Houses
         const miniHouses = buildings.filter(b => b.type === 'mini-house');
+        
+        // Remove workers if mini-house no longer requests one
+        updatedNpcs = updatedNpcs.filter(npc => {
+          if (npc.type === 'worker') {
+            const mh = miniHouses.find(h => h.id === npc.homeId);
+            if (!mh || !mh.hasWorkerRequested) {
+              changed = true;
+              return false;
+            }
+          }
+          return true;
+        });
+
         miniHouses.forEach(mh => {
           const hasWorker = updatedNpcs.some(n => n.type === 'worker' && n.homeId === mh.id);
-          if (!hasWorker) {
-            const gridX = Math.floor((mh.offset.x + (GRID_SIZE * 32) / 2) / 32);
-            const gridY = Math.floor((mh.offset.y + (GRID_SIZE * 32) / 2) / 32);
+          // Only one worker per mini-house
+          if (mh.hasWorkerRequested && !hasWorker) {
+            const gridPos = worldToGrid(mh.offset.x, mh.offset.y, currentSize);
+            const worldPos = gridToWorldLocal(gridPos.c, gridPos.r);
             updatedNpcs.push({
               id: `worker-${mh.id}`,
               type: 'worker',
               char: 'racoon',
               homeId: mh.id,
-              c: gridX,
-              r: gridY,
-              targetC: gridX,
-              targetR: gridY,
+              c: gridPos.c,
+              r: gridPos.r,
+              x: worldPos.x,
+              y: worldPos.y,
+              targetC: gridPos.c,
+              targetR: gridPos.r,
               path: [],
               status: 'idle',
-              lastAction: now
+              lastAction: now,
+              isWalking: false,
+              facing: 'down'
             });
             changed = true;
           }
         });
 
-        // Spawn Vacationers (every 2-5 mins)
-        const lastVacSpawn = (window as any).lastVacSpawn || 0;
+        // Invite Vacationers logic (Manual spawning)
         const hotels = buildings.filter(b => b.type === 'hotel');
-        if (now - lastVacSpawn > (2 + Math.random() * 3) * 60000 && hotels.length > 0) {
-          const availableHotel = hotels.find(h => !updatedNpcs.some(n => n.targetHotelId === h.id));
-          if (availableHotel) {
-            (window as any).lastVacSpawn = now;
-            // Spawn at random edge
-            const edge = Math.floor(Math.random() * 4);
-            let sc = 0, sr = 0;
-            if (edge === 0) { sc = Math.floor(Math.random() * GRID_SIZE); sr = 0; }
-            else if (edge === 1) { sc = Math.floor(Math.random() * GRID_SIZE); sr = GRID_SIZE - 1; }
-            else if (edge === 2) { sc = 0; sr = Math.floor(Math.random() * GRID_SIZE); }
-            else { sc = GRID_SIZE - 1; sr = Math.floor(Math.random() * GRID_SIZE); }
+        hotels.forEach(hotel => {
+          if ((hotel.pendingVacationers || 0) > 0) {
+            const currentGuests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id).length;
+            if (currentGuests < 5) {
+              // Spawn at random edge
+              const edge = Math.floor(Math.random() * 4);
+              let sc = 0, sr = 0;
+              if (edge === 0) { sc = Math.floor(Math.random() * currentSize); sr = 0; }
+              else if (edge === 1) { sc = Math.floor(Math.random() * currentSize); sr = currentSize - 1; }
+              else if (edge === 2) { sc = 0; sr = Math.floor(Math.random() * currentSize); }
+              else { sc = currentSize - 1; sr = Math.floor(Math.random() * currentSize); }
 
-            updatedNpcs.push({
-              id: `vac-${now}`,
-              type: 'vacationer',
-              char: 'fox',
-              c: sc,
-              r: sr,
-              targetHotelId: availableHotel.id,
-              status: 'arriving',
-              path: [],
-              stayUntil: now + (3 + Math.random() * 7) * 60000,
-              lastPayment: now
-            });
-            changed = true;
+              const worldPos = gridToWorldLocal(sc, sr);
+              updatedNpcs.push({
+                id: `vac-${now}-${Math.random()}`,
+                type: 'vacationer',
+                char: 'fox',
+                c: sc,
+                r: sr,
+                x: worldPos.x,
+                y: worldPos.y,
+                targetHotelId: hotel.id,
+                status: 'arriving',
+                path: [],
+                stayUntil: now + (6 * 60 * 60 * 1000), // 6 hours max
+                lastPayment: now,
+                isWalking: false,
+                facing: 'down'
+              });
+
+              // Decrement pending count in buildings state
+              setBuildings(prev => prev.map(b => b.id === hotel.id ? { ...b, pendingVacationers: b.pendingVacationers - 1 } : b));
+              changed = true;
+            }
+          }
+        });
+
+        // 2. Obstacle Map for NPCs (Buildings + Decorations)
+        const buildingHitboxes = buildings.map(b => {
+          if (!b.offset) return null;
+          let w = 64, h = 64;
+          if (b.type === 'garden-bed' || b.type === 'garden-tree' || b.type === 'shop') { w = 32; h = 32; }
+          return { x: b.offset.x - w/2, y: b.offset.y - h/2, w, h };
+        }).filter(Boolean);
+
+        // Calculate current decorations for collision
+        const decorationHitboxes: any[] = [];
+        for (let r = 0; r < currentSize; r++) {
+          for (let c = 0; c < currentSize; c++) {
+            if (islandMap[r][c] === TILE_TYPES.GRASS) {
+              const rand = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453 % 1;
+              if (Math.abs(rand) < 0.15) {
+                const id = `tree-${c}-${r}`;
+                if (!removedDecorations.includes(id)) {
+                  const worldPos = gridToWorldLocal(c, r);
+                  const subX = (rand * 8); 
+                  const subY = (Math.cos(r * 10) * 8); 
+                  decorationHitboxes.push({ x: worldPos.x + subX - 5, y: worldPos.y + subY - 5, w: 10, h: 10 });
+                }
+              }
+            }
           }
         }
 
-        // 2. Movement & Task Logic
+        const allHitboxes = [...buildingHitboxes, ...decorationHitboxes];
+
+        // 3. Movement & Task Logic
         updatedNpcs = updatedNpcs.map(npc => {
-          // Movement step (1 tile per 0.5s)
-          if (now - (npc.lastMove || 0) > 500) {
-            if (npc.path && npc.path.length > 0) {
-              const next = npc.path[0];
-              return { ...npc, c: next.c, r: next.r, path: npc.path.slice(1), lastMove: now, facing: next.c > npc.c ? 'right' : next.c < npc.c ? 'left' : next.r > npc.r ? 'down' : 'up' };
+          let nextNpc = { ...npc };
+          
+          // Smooth Movement
+          if (npc.path && npc.path.length > 0) {
+            const targetTile = npc.path[0];
+            const targetPos = gridToWorldLocal(targetTile.c, targetTile.r);
+            const dx = targetPos.x - npc.x;
+            const dy = targetPos.y - npc.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < 2) {
+              nextNpc.x = targetPos.x;
+              nextNpc.y = targetPos.y;
+              nextNpc.c = targetTile.c;
+              nextNpc.r = targetTile.r;
+              nextNpc.path = npc.path.slice(1);
+              nextNpc.isWalking = nextNpc.path.length > 0;
+            } else {
+              const speed = 1.2;
+              const vx = (dx / dist) * speed;
+              const vy = (dy / dist) * speed;
+              
+              const nextX = npc.x + vx;
+              const nextY = npc.y + vy;
+              
+              const isTargetBuilding = buildings.some(b => {
+                const bGrid = worldToGridLocal(b.offset.x, b.offset.y);
+                const isNpcTarget = nextNpc.targetId === b.id;
+                return (bGrid.c === targetTile.c && bGrid.r === targetTile.r) || isNpcTarget;
+              });
+
+              let blocked = false;
+              if (!isTargetBuilding) {
+                blocked = allHitboxes.some(h => 
+                  nextX + 6 > h.x && nextX - 6 < h.x + h.w &&
+                  nextY + 6 > h.y && nextY - 6 < h.y + h.h
+                );
+              }
+
+              if (!blocked) {
+                nextNpc.x = nextX;
+                nextNpc.y = nextY;
+                nextNpc.isWalking = true;
+                if (Math.abs(dx) > Math.abs(dy)) {
+                  nextNpc.facing = dx > 0 ? 'right' : 'left';
+                } else {
+                  nextNpc.facing = dy > 0 ? 'down' : 'up';
+                }
+              } else {
+                nextNpc.isWalking = false;
+              }
             }
+          } else {
+            nextNpc.isWalking = false;
           }
 
-          if (npc.type === 'worker') {
-            const home = buildings.find(b => b.id === npc.homeId);
-            const homeGrid = home ? { c: Math.floor((home.offset.x + (GRID_SIZE * 32) / 2) / 32), r: Math.floor((home.offset.y + (GRID_SIZE * 32) / 2) / 32) } : null;
+          if (nextNpc.type === 'worker') {
+            const home = buildings.find(b => b.id === nextNpc.homeId);
+            const homeGrid = home ? worldToGrid(home.offset.x, home.offset.y, currentSize) : null;
 
-            if (npc.status === 'idle') {
-               // Look for work
-               const targets = buildings.filter(b => b.growthState && (b.growthState.currentLevel === 3 && !b.growthState.isWatered && Date.now() >= (b.growthState.waterNeededAt || 0) || b.growthState.currentLevel === 4 || b.growthState.currentLevel === 5));
+            if (nextNpc.status === 'idle') {
+               // Look for work: Water, Harvest, or Replant
+               const targets = buildings.filter(b => {
+                 if (!b.growthState) return false;
+                 const gs = b.growthState;
+                 const needsWater = gs.currentLevel === 3 && !gs.isWatered && Date.now() >= (gs.waterNeededAt || 0);
+                 const readyToHarvest = gs.currentLevel === 4;
+                 const dead = gs.currentLevel === 5;
+                 const needsReplant = gs.currentLevel === 1 && gs.lastProduceType;
+                 return needsWater || readyToHarvest || dead || needsReplant;
+               });
+
                if (targets.length > 0) {
                  const target = targets[0];
                  const targetGrid = target.growthState.coordinates;
-                 // Path to neighbor of target
-                 const path = findPath({c: npc.c, r: npc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap);
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap);
                  if (path) {
-                    return { ...npc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
+                    return { ...nextNpc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
                  }
-               } else if (homeGrid && (npc.c !== homeGrid.c || npc.r !== homeGrid.r) && npc.path.length === 0) {
-                 const path = findPath({c: npc.c, r: npc.r}, homeGrid, islandMap);
-                 if (path) return { ...npc, path };
+               } else if (homeGrid && (nextNpc.c !== homeGrid.c || nextNpc.r !== homeGrid.r) && nextNpc.path.length === 0) {
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, homeGrid, islandMap);
+                 if (path) return { ...nextNpc, path };
                }
-            } else if (npc.status === 'moving_to_work' && npc.path.length === 0) {
-               return { ...npc, status: 'working', lastAction: now };
-            } else if (npc.status === 'working' && now - npc.lastAction > 3000) {
-               const target = buildings.find(b => b.id === npc.targetId);
+            } else if (nextNpc.status === 'moving_to_work' && nextNpc.path.length === 0) {
+               return { ...nextNpc, status: 'working', lastAction: now };
+            } else if (nextNpc.status === 'working' && now - nextNpc.lastAction > 3000) {
+               const target = buildings.find(b => b.id === nextNpc.targetId);
                if (target && target.growthState) {
-                  if (target.growthState.currentLevel === 3) interactWithBuilding(target.id, 'water');
-                  else if (target.growthState.currentLevel === 4) interactWithBuilding(target.id, 'harvest');
-                  else if (target.growthState.currentLevel === 5) interactWithBuilding(target.id, 'clear');
+                  const gs = target.growthState;
+                  if (gs.currentLevel === 3) interactWithBuilding(target.id, 'water');
+                  else if (gs.currentLevel === 4) interactWithBuilding(target.id, 'harvest');
+                  else if (gs.currentLevel === 5) interactWithBuilding(target.id, 'clear');
+                  else if (gs.currentLevel === 1 && gs.lastProduceType) {
+                    interactWithBuilding(target.id, 'select-produce', { produceType: gs.lastProduceType });
+                  }
                }
-               return { ...npc, status: 'idle', targetId: null };
+               return { ...nextNpc, status: 'idle', targetId: null };
             }
           }
 
-          if (npc.type === 'vacationer') {
-            if (npc.status === 'arriving') {
-              const hotel = buildings.find(b => b.id === npc.targetHotelId);
+          if (nextNpc.type === 'vacationer') {
+            if (nextNpc.status === 'arriving') {
+              const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
               if (hotel) {
-                const hotelGrid = { c: Math.floor((hotel.offset.x + (GRID_SIZE * 32) / 2) / 32), r: Math.floor((hotel.offset.y + (GRID_SIZE * 32) / 2) / 32) };
-                if (npc.c === hotelGrid.c && npc.r === hotelGrid.r) {
-                  return { ...npc, status: 'staying' };
-                } else if (npc.path.length === 0) {
-                  const path = findPath({c: npc.c, r: npc.r}, hotelGrid, islandMap);
-                  if (path) return { ...npc, path };
+                const hotelGrid = { c: Math.floor((hotel.offset.x + (currentSize * 32) / 2 + 16) / 32), r: Math.floor((hotel.offset.y + (currentSize * 32) / 2 + 16) / 32) };
+                if (nextNpc.c === hotelGrid.c && nextNpc.r === hotelGrid.r) {
+                  return { ...nextNpc, status: 'staying', lastAction: now };
+                } else if (nextNpc.path.length === 0) {
+                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, hotelGrid, islandMap);
+                  if (path) return { ...nextNpc, path };
                 }
               } else {
-                 return { ...npc, status: 'leaving', path: [] }; // Hotel deleted
+                 return { ...nextNpc, status: 'leaving', path: [] };
               }
-            } else if (npc.status === 'staying') {
-              if (now >= npc.stayUntil) {
-                return { ...npc, status: 'leaving', path: [] };
+            } else if (nextNpc.status === 'staying') {
+              if (now >= nextNpc.stayUntil) {
+                return { ...nextNpc, status: 'leaving', path: [] };
               }
-              // Payment logic
-              if (now - npc.lastPayment >= 60000) {
-                setResources(r => ({ ...r, coins: (r.coins || 0) + 5 }));
-                return { ...npc, lastPayment: now };
+              if (now - nextNpc.lastPayment >= 60000) {
+                setResources(r => ({ ...r, coins: (r.coins || 0) + 50 }));
+                return { ...nextNpc, lastPayment: now };
               }
-            } else if (npc.status === 'leaving') {
-               if (npc.path.length === 0) {
-                 const edge = { c: 0, r: 0 }; // Exit at top-left for simplicity
-                 const path = findPath({c: npc.c, r: npc.r}, edge, islandMap);
-                 if (path) return { ...npc, path };
-                 else return null; // Disappear if no path
-               } else if (npc.path.length === 0 && (npc.c === 0 && npc.r === 0)) {
+
+              // Sightseeing Movement
+              if (nextNpc.path.length === 0 && now - (nextNpc.lastAction || 0) > 5000 + Math.random() * 10000) {
+                // Pick a random grass tile to visit
+                const grassTiles: {c: number, r: number}[] = [];
+                for (let r = 0; r < currentSize; r++) {
+                  for (let c = 0; c < currentSize; c++) {
+                    if (islandMap[r][c] === TILE_TYPES.GRASS) grassTiles.push({c, r});
+                  }
+                }
+                if (grassTiles.length > 0) {
+                  const target = grassTiles[Math.floor(Math.random() * grassTiles.length)];
+                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, target, islandMap);
+                  if (path) return { ...nextNpc, path, lastAction: now };
+                }
+              }
+            } else if (nextNpc.status === 'leaving') {
+               if (nextNpc.path.length === 0) {
+                 const edge = { c: 0, r: 0 };
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, edge, islandMap);
+                 if (path) return { ...nextNpc, path };
+                 else return null;
+               } else if (nextNpc.path.length === 0 && (nextNpc.c === 0 && nextNpc.r === 0)) {
                  return null;
                }
             }
           }
 
-          return npc;
+          return nextNpc;
         }).filter(Boolean);
 
         return changed || JSON.stringify(updatedNpcs) !== JSON.stringify(prevNpcs) ? updatedNpcs : prevNpcs;
       });
-    }, 500); // 0.5s tick
+    }, 50); // Fast interval for smooth movement
 
     return () => clearInterval(npcInterval);
   }, [buildings, islandMap, findPath, interactWithBuilding]);
@@ -673,12 +908,12 @@ export const useGameState = () => {
       const newBuilding: any = { id: newId, type, offset };
       
       if (type === 'garden-bed' || type === 'garden-tree') {
-        const gridX = Math.floor((offset.x + (20 * 32) / 2) / 32);
-        const gridY = Math.floor((offset.y + (20 * 32) / 2) / 32);
+        const currentSize = islandMap.length;
+        const gridPos = worldToGrid(offset.x, offset.y, currentSize);
         
         newBuilding.growthState = {
           id: newId,
-          coordinates: { x: gridX, y: gridY },
+          coordinates: { x: gridPos.c, y: gridPos.r },
           produceType: null,
           currentLevel: 1,
           startTime: Date.now(),
@@ -734,6 +969,10 @@ export const useGameState = () => {
   useEffect(() => {
     localStorage.setItem('warden_npcs', JSON.stringify(npcs));
   }, [npcs]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_removed_decorations', JSON.stringify(removedDecorations));
+  }, [removedDecorations]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -796,13 +1035,12 @@ export const useGameState = () => {
   }, [exploredTerritory, spawnedResources.length]);
 
   const resetGame = useCallback(() => {
-    localStorage.removeItem('warden_buildings');
-    localStorage.removeItem('warden_level');
-    localStorage.removeItem('warden_xp');
-    localStorage.removeItem('warden_resources');
-    localStorage.removeItem('warden_inventory');
-    localStorage.removeItem('warden_distance');
-    localStorage.removeItem('warden_territory');
+    // Nuclear clear for all warden_ keys
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('warden_')) {
+        localStorage.removeItem(key);
+      }
+    });
     
     setBuildings([]);
     setLevel(1);
@@ -824,6 +1062,11 @@ export const useGameState = () => {
     setSpawnedResources([]);
     setTotalDistanceWalked(0);
     setAvatarPos({ x: 0, y: 0 });
+    setRemovedDecorations([]);
+    setIslandMap(generateIslandMap(INITIAL_GRID_SIZE));
+    setExpansionCost(500);
+    setNpcs([]);
+    setTreeCooldowns({});
   }, []);
 
   return {
@@ -857,7 +1100,8 @@ export const useGameState = () => {
     islandMap,
     expandLand,
     expansionCost,
-    npcs
+    npcs,
+    removedDecorations
   };
 };
 

@@ -14,13 +14,13 @@ const BuildMenu = ({ resources, onBuild }) => {
   };
 
   const blueprints = [
-    { id: 'house', type: 'starter-house', name: 'HOUSE', icon: '/images/house.png', isImage: true, cost: { wood: 50, coins: 20 } },
-    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10, coins: 5 } },
-    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 } },
-    { id: 'mini-house', type: 'mini-house', name: 'MINI HOUSE', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 } },
-    { id: 'shop', type: 'shop', name: 'SHOP', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 } },
-    { id: 'market', type: 'market', name: 'MARKET', icon: '/images/Market.png', isImage: true, cost: { wood: 100, metal: 20, coins: 50 } },
-    { id: 'hotel', type: 'hotel', name: 'HOTEL', icon: '/images/Storage.png', isImage: true, cost: { wood: 200, metal: 200, coins: 100 } }
+    { id: 'house', type: 'starter-house', name: 'FOUNDER’S LODGE', description: 'Rest here to pass the time.', icon: '/images/house.png', isImage: true, cost: { wood: 50, coins: 20 } },
+    { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', description: 'Plant vegetables here.', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10, coins: 5 } },
+    { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', description: 'Plant fruit trees here.', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 } },
+    { id: 'mini-house', type: 'mini-house', name: 'WORKER’S CONDO', description: 'Attracts a Raccoon worker to tend your garden.', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 } },
+    { id: 'shop', type: 'shop', name: 'GENERAL STORE', description: 'Buy raw materials and resources.', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 } },
+    { id: 'market', type: 'market', name: 'FARMERS’ MARKET', description: 'Sell your harvest for coins.', icon: '/images/Market.png', isImage: true, cost: { wood: 100, metal: 20, coins: 50 } },
+    { id: 'hotel', type: 'hotel', name: 'FOXGLOVE INN', description: 'Attracts foxes who pay 100 coins per hour.', icon: '/images/Storage.png', isImage: true, cost: { wood: 200, metal: 200, coins: 100 } }
   ];
 
   const canAfford = (cost) => {
@@ -56,7 +56,7 @@ const BuildMenu = ({ resources, onBuild }) => {
           <div className="overflow-y-auto p-4 flex flex-col gap-4 custom-scrollbar bg-[#fcfaf8] h-[350px]">
             {blueprints.map((bp) => (
               <div key={bp.id} className="bg-[#f1ebe3] p-4 rounded-3xl shadow-[0_4px_0_0_#d1c4b9] flex flex-col gap-4 hover:bg-[#ebe2d8] transition-colors">
-                 <div className="flex justify-between items-center">
+                 <div className="flex justify-between items-start">
                    <div className="flex items-center gap-3">
                      {bp.isImage ? (
                        <img src={bp.icon} alt={bp.name} className="w-8 h-8 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} />
@@ -80,6 +80,10 @@ const BuildMenu = ({ resources, onBuild }) => {
                        </div>
                      ))}
                    </div>
+                 </div>
+
+                 <div className="text-[#8b7a6d] text-[7px] leading-relaxed uppercase">
+                    {bp.description}
                  </div>
                  
                  <button 

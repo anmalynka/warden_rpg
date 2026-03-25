@@ -8,12 +8,12 @@ interface ShopUIProps {
 
 const ShopUI: React.FC<ShopUIProps> = ({ resources, onBuy, onClose }) => {
   const items = [
-    { id: 'wood', name: 'WOOD', icon: '/images/tools-wood.png', cost: 10, amount: 5 },
-    { id: 'metal', name: 'METAL', icon: '/images/tools-iron.png', cost: 20, amount: 5 }
+    { id: 'wood', name: 'WOOD', icon: '/images/tools-wood.png', cost: 100, amount: 5 },
+    { id: 'metal', name: 'METAL', icon: '/images/tools-iron.png', cost: 200, amount: 5 }
   ];
 
   return (
-    <div className="fixed inset-0 z-[5000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
       <div className="p-8 flex flex-col items-center gap-6 max-w-[360px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
         <h3 className="text-[#3e2723] text-[12px] uppercase text-center">SHOP</h3>
         

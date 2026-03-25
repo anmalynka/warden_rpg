@@ -12,16 +12,6 @@
 }
 
 /* Character Sprite Animations */
-.sprite-character {
-  width: 32px;
-  height: 32px;
-  background-repeat: no-repeat;
-  image-rendering: pixelated;
-  /* Zoom the sprite a bit for better visibility */
-  transform: scale(2);
-  transform-origin: bottom;
-}
-
 .sprite-idle {
   background-image: url('/images/Unarmed_Idle_with_shadow.png');
   animation: idle-anim 1.2s steps(12) infinite;
