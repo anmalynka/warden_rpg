@@ -132,13 +132,36 @@ const TownView = ({
         // For 2x2 (64x64), hitbox is offset-32 to offset+32
         // For 1x1 (32x32), hitbox is offset-16 to offset+16
         const isMulti = tiles.length > 1;
-        const hSize = isMulti ? 32 : 16;
+        let hitbox;
+
+        if (b.type === 'market') {
+          // Specific request: market is about 50x70px
+          hitbox = {
+            x: b.offset.x - 25,
+            y: b.offset.y - 38, // (offset.y + 32) - 70 = offset.y - 38
+            w: 50,
+            h: 70
+          };
+        } else if (b.type === 'hotel') {
+          // Specific request: hotel is about 80x50px
+          hitbox = {
+            x: b.offset.x - 40,
+            y: b.offset.y - 18, // (offset.y + 32) - 50 = offset.y - 18
+            w: 80,
+            h: 50
+          };
+        } else {
+          const hSize = isMulti ? 32 : 16;
+          hitbox = {
+            x: b.offset.x - hSize,
+            y: b.offset.y - hSize,
+            w: hSize * 2,
+            h: hSize * 2
+          };
+        }
 
         buildingObstacles.push({
-          x: b.offset.x - hSize,
-          y: b.offset.y - hSize,
-          w: hSize * 2,
-          h: hSize * 2,
+          ...hitbox,
           type: b.type,
           isMultiTile: isMulti,
           tiles: tiles,

@@ -9,6 +9,7 @@ import BottomNav from './BottomNav'
 import TownView from './TownView'
 import ShopUI from './ShopUI'
 import MarketUI from './MarketUI'
+import PlayerSprite from './PlayerSprite'
 import { useImagePreloader } from './hooks/useImagePreloader'
 import { ISLAND_MAP, TILE_SIZE, TILE_TYPES, getMapOffset } from './MapConstants'
 import './App.css'
@@ -671,7 +672,7 @@ function App() {
                   setPendingBuilding(null);
                   return;
                 }
-                addBuilding(type, cost, { lat, lng });
+                addBuilding(type, cost, { x: lng, y: lat });
                 setIsPlacing(false);
                 setPendingBuilding(null);
               }}
