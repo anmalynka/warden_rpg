@@ -48,9 +48,9 @@ function App() {
     expandLand,
     expansionCost,
     npcs,
-    removedDecorations
-  } = useGameState();
-
+    removedDecorations,
+    catType
+    } = useGameState();
   const [appState, setAppState] = useState('main'); // Default to main to skip login
   const [user, setUser] = useState('Dev');
   const [role, setRole] = useState({ name: 'Warden', icon: '🛡️' });
@@ -67,6 +67,10 @@ function App() {
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
   
+  const [showCharacterSelection, setShowCharacterSelection] = useState(() => {
+    return !localStorage.getItem('warden_cat_type');
+  });
+
   // Lifted Modal States
   const [shopOpen, setShopOpen] = useState(false);
   const [marketOpen, setMarketOpen] = useState(false);
@@ -110,7 +114,7 @@ function App() {
     let count = 0;
     for (const p of pointsToCheck) {
       const c = Math.floor((p.x - offset) / TILE_SIZE);
-      const r = Math.floor((p.y - offset) / TILE_SIZE);
+      const r = Math.floor((p.y - 1 - offset) / TILE_SIZE);
       
       if (c < 0 || c >= currentSize || r < 0 || r >= currentSize) {
         count++;
@@ -546,6 +550,7 @@ function App() {
               facing={facing}
               isWalking={isWalking}
               onUpdateObstacles={setObstacles}
+              catType={catType}
               interactWithBuilding={(id: string, action: string, data?: any) => 
                 interactWithBuilding(id, action, data, handleHarvestNotification)
               }
@@ -1087,6 +1092,46 @@ function App() {
           </div>
         )}
 
+        {showCharacterSelection && (
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 font-['Press_Start_2P']" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#f9f5f0] border-4 border-[#3e2723] p-8 rounded-3xl shadow-xl flex flex-col items-center gap-6 max-w-[400px] w-full text-center">
+              <h2 className="text-[#3e2723] text-[12px] uppercase">CHOOSE YOUR CHARACTER</h2>
+              <div className="flex gap-8 items-center py-4">
+                <div 
+                  className="flex flex-col items-center gap-4 cursor-pointer group"
+                  onClick={() => {
+                    resetGame('grey-cat');
+                    setShowCharacterSelection(false);
+                    setActiveTab('village');
+                  }}
+                >
+                  <div className="w-16 h-16 bg-[#e0d7cd] rounded-2xl border-4 border-[#3e2723] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="scale-150">
+                      <PlayerSprite direction="down" isWalking={false} catType="grey-cat" />
+                    </div>
+                  </div>
+                  <div className="text-[8px] text-[#3e2723]">GREY CAT</div>
+                </div>
+                <div 
+                  className="flex flex-col items-center gap-4 cursor-pointer group"
+                  onClick={() => {
+                    resetGame('orange-cat');
+                    setShowCharacterSelection(false);
+                    setActiveTab('village');
+                  }}
+                >
+                  <div className="w-16 h-16 bg-[#e0d7cd] rounded-2xl border-4 border-[#3e2723] flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <div className="scale-150">
+                      <PlayerSprite direction="down" isWalking={false} catType="orange-cat" />
+                    </div>
+                  </div>
+                  <div className="text-[8px] text-[#3e2723]">ORANGE CAT</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {deleteConfirm && (
           <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
             <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
@@ -1114,14 +1159,15 @@ function App() {
                     onClick={(e) => {
                         e.stopPropagation();
                         if (deleteConfirm.type === 'restart') {
-                          resetGame();
-                          setActiveTab('village');
+                          setDeleteConfirm(null);
+                          setShowCharacterSelection(true);
                         } else if (deleteConfirm.type === 'building' && deleteConfirm.id) {
                           interactWithBuilding(deleteConfirm.id, 'remove');
+                          setDeleteConfirm(null);
                         } else if (deleteConfirm.type === 'decoration' && deleteConfirm.id) {
                           interactWithBuilding(deleteConfirm.id, 'remove-decoration');
+                          setDeleteConfirm(null);
                         }
-                        setDeleteConfirm(null);
                     }}
                     className="w-full py-4 text-[10px] bg-[#d32f2f] text-white border-4 border-[#3e2723] shadow-[0_4px_0_0_#b71c1c] active:shadow-none active:translate-y-1"
                   >

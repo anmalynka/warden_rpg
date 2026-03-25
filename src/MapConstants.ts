@@ -5,8 +5,8 @@ export const TILE_TYPES = {
   GRASS: 3
 };
 
-const GRID_SIZE = 24; 
-const INITIAL_GRID_SIZE = 24;
+const GRID_SIZE = 34; 
+const INITIAL_GRID_SIZE = 34;
 const TILE_SIZE = 32;
 
 export { GRID_SIZE, INITIAL_GRID_SIZE, TILE_SIZE };
@@ -31,36 +31,31 @@ export const gridToWorld = (c: number, r: number, currentSize: number = INITIAL_
   };
 };
 
-// For 2x2 buildings, the center is between 4 tiles
+// For 2x2 buildings, the center is the intersection of 4 tiles
 export const gridToWorldBuilding = (c: number, r: number, currentSize: number = INITIAL_GRID_SIZE) => {
   const offset = getMapOffset(currentSize);
   return {
-    x: offset + c * TILE_SIZE,
-    y: offset + r * TILE_SIZE
+    x: offset + (c + 1) * TILE_SIZE,
+    y: offset + (r + 1) * TILE_SIZE
   };
 };
 
-// Generate an organic blob-like island with 5-tile water buffer
+// Generate an organic blob-like island with water buffer
 export const generateIslandMap = (size: number = INITIAL_GRID_SIZE) => {
   const map = Array(size).fill(0).map(() => Array(size).fill(TILE_TYPES.WATER));
   const center = size / 2;
 
-  for (let r = 0; r < size; r++) {
+  // Island generation starts from row 5 and ends at size-5
+  for (let r = 5; r < size - 5; r++) {
     for (let c = 0; c < size; c++) {
-      // Ensure first row is always water
-      if (r === 0) {
-        map[r][c] = TILE_TYPES.WATER;
-        continue;
-      }
-
       const dist = Math.sqrt(Math.pow(r - center, 2) + Math.pow(c - center, 2));
-      // Organic noise simulation using sine waves
-      const noise = (Math.sin(r * 0.5) + Math.cos(c * 0.5)) * 1.5;
-      const threshold = 6 + noise;
+      // Organic noise simulation
+      const noise = (Math.sin(r * 0.5) + Math.cos(c * 0.5)) * 1.2;
+      const threshold = 6.3 + noise;
 
       if (dist < threshold) {
         map[r][c] = TILE_TYPES.GRASS;
-      } else if (dist < threshold + 1.0) { // Thinner sand border
+      } else if (dist < threshold + 1.2) {
         map[r][c] = TILE_TYPES.SAND;
       }
     }
@@ -72,9 +67,9 @@ export const getBuildingTiles = (type: string, c: number, r: number) => {
   if (type === 'starter-house' || type === 'mini-house' || type === 'hotel' || type === 'market') {
     return [
       { r, c },
-      { r, c: c - 1 },
-      { r: r - 1, c },
-      { r: r - 1, c: c - 1 }
+      { r, c: c + 1 },
+      { r: r + 1, c },
+      { r: r + 1, c: c + 1 }
     ];
   }
   return [{ r, c }];

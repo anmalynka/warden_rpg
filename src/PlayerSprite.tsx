@@ -3,9 +3,10 @@ import React from 'react';
 interface PlayerSpriteProps {
   direction: 'down' | 'left' | 'right' | 'up';
   isWalking: boolean;
+  catType?: string;
 }
 
-const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking }) => {
+const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, catType = 'grey-cat' }) => {
   // Map directions to row indices (0: down, 1: left, 2: right, 3: up)
   const directionMap = {
     down: 0,
@@ -40,7 +41,7 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking }) => 
         .cat-sprite-sheet {
           width: ${sheetWidth}px;
           height: ${sheetHeight}px;
-          background-image: url('/images/grey-cat.png');
+          background-image: url('/images/${catType === 'orange-cat' ? 'orange-cat.png' : 'grey-cat.png'}');
           background-repeat: no-repeat;
           position: absolute;
           image-rendering: pixelated;

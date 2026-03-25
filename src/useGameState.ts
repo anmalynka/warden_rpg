@@ -19,6 +19,10 @@ export const useGameState = () => {
     return saved ? parseInt(saved) : 500;
   });
 
+  useEffect(() => {
+    localStorage.setItem('warden_expansion_cost', expansionCost.toString());
+  }, [expansionCost]);
+
   const [resources, setResources] = useState(() => {
     const saved = localStorage.getItem('warden_resources');
     if (!localStorage.getItem('warden_map')) return { wood: 50, metal: 20, coins: 100 };
@@ -42,7 +46,7 @@ export const useGameState = () => {
     const saved = localStorage.getItem('warden_distance');
     return saved ? JSON.parse(saved) : 0;
   });
-  const [avatarPos, setAvatarPos] = useState({ x: 0, y: 0 }); // Ground position at center
+  const [avatarPos, setAvatarPos] = useState({ x: 16, y: 32 }); // Base position (feet) at bottom of tile 12,12
   const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
   const [isInsideHouse, setIsInsideHouse] = useState(false);
   const [lastSleepTick, setLastSleepTick] = useState<number | null>(null);
@@ -83,11 +87,20 @@ export const useGameState = () => {
     return parsed.map((n: any) => {
       if (n.x === undefined || n.y === undefined) {
         const worldPos = gridToWorldLocal(n.c, n.r);
-        return { ...n, x: worldPos.x, y: worldPos.y, isWalking: false, facing: 'down' };
+        return { ...n, x: worldPos.x, y: worldPos.y + 16, isWalking: false, facing: 'down' };
       }
       return n;
     });
   });
+
+  const [catType, setCatType] = useState(() => {
+    const saved = localStorage.getItem('warden_cat_type');
+    return saved || 'grey-cat';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('warden_cat_type', catType);
+  }, [catType]);
 
   const [removedDecorations, setRemovedDecorations] = useState<string[]>(() => {
     const saved = localStorage.getItem('warden_removed_decorations');
@@ -579,10 +592,9 @@ export const useGameState = () => {
               c: gridPos.c,
               r: gridPos.r,
               x: worldPos.x,
-              y: worldPos.y,
+              y: worldPos.y + 16,
               targetC: gridPos.c,
-              targetR: gridPos.r,
-              path: [],
+              targetR: gridPos.r,              path: [],
               status: 'idle',
               lastAction: now,
               isWalking: false,
@@ -614,9 +626,8 @@ export const useGameState = () => {
                 c: sc,
                 r: sr,
                 x: worldPos.x,
-                y: worldPos.y,
-                targetHotelId: hotel.id,
-                status: 'arriving',
+                y: worldPos.y + 16,
+                targetHotelId: hotel.id,                status: 'arriving',
                 path: [],
                 stayUntil: now + (6 * 60 * 60 * 1000), // 6 hours max
                 lastPayment: now,
@@ -669,16 +680,15 @@ export const useGameState = () => {
             const targetTile = npc.path[0];
             const targetPos = gridToWorldLocal(targetTile.c, targetTile.r);
             const dx = targetPos.x - npc.x;
-            const dy = targetPos.y - npc.y;
+            const dy = (targetPos.y + 16) - npc.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            
+
             if (dist < 2) {
               nextNpc.x = targetPos.x;
-              nextNpc.y = targetPos.y;
+              nextNpc.y = targetPos.y + 16;
               nextNpc.c = targetTile.c;
               nextNpc.r = targetTile.r;
-              nextNpc.path = npc.path.slice(1);
-              nextNpc.isWalking = nextNpc.path.length > 0;
+              nextNpc.path = npc.path.slice(1);              nextNpc.isWalking = nextNpc.path.length > 0;
             } else {
               const speed = 1.2;
               const vx = (dx / dist) * speed;
@@ -766,7 +776,7 @@ export const useGameState = () => {
             if (nextNpc.status === 'arriving') {
               const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
               if (hotel) {
-                const hotelGrid = { c: Math.floor((hotel.offset.x + (currentSize * 32) / 2 + 16) / 32), r: Math.floor((hotel.offset.y + (currentSize * 32) / 2 + 16) / 32) };
+                const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
                 if (nextNpc.c === hotelGrid.c && nextNpc.r === hotelGrid.r) {
                   return { ...nextNpc, status: 'staying', lastAction: now };
                 } else if (nextNpc.path.length === 0) {
@@ -1034,14 +1044,19 @@ export const useGameState = () => {
     if (needed <= 0) return;
   }, [exploredTerritory, spawnedResources.length]);
 
-  const resetGame = useCallback(() => {
+  const resetGame = useCallback((newCatType?: string) => {
     // Nuclear clear for all warden_ keys
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('warden_')) {
         localStorage.removeItem(key);
       }
     });
-    
+
+    if (newCatType) {
+       setCatType(newCatType);
+       localStorage.setItem('warden_cat_type', newCatType);
+    }
+
     setBuildings([]);
     setLevel(1);
     setXp(0);
@@ -1061,7 +1076,7 @@ export const useGameState = () => {
     setExploredTerritory(null);
     setSpawnedResources([]);
     setTotalDistanceWalked(0);
-    setAvatarPos({ x: 0, y: 0 });
+    setAvatarPos({ x: 16, y: 32 });
     setRemovedDecorations([]);
     setIslandMap(generateIslandMap(INITIAL_GRID_SIZE));
     setExpansionCost(500);
@@ -1101,7 +1116,9 @@ export const useGameState = () => {
     expandLand,
     expansionCost,
     npcs,
-    removedDecorations
+    removedDecorations,
+    catType,
+    setCatType
   };
 };
 

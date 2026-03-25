@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useRef } from 'react';
 import PlayerSprite from './PlayerSprite';
 import { 
   TILE_TYPES, TILE_SIZE, 
-  worldToGrid, gridToWorld, ISLAND_MAP, getBuildingTiles 
+  worldToGrid, gridToWorld, gridToWorldBuilding, ISLAND_MAP, getBuildingTiles 
 } from './MapConstants';
 
 const TownView = ({ 
@@ -43,7 +43,8 @@ const TownView = ({
   setConfirmTreeCollect,
   expansionConfirm,
   setExpansionConfirm,
-  removedDecorations = []
+  removedDecorations = [],
+  catType
   }: any) => {
   const touchDistRef = useRef<number | null>(null);
   
@@ -127,17 +128,19 @@ const TownView = ({
         const gridPos = worldToGrid(b.offset.x, b.offset.y, currentSize);
         const tiles = getBuildingTiles(b.type, gridPos.c, gridPos.r);
         
-        // Use 64x64 collision area for most buildings
-        let hitbox = { x: b.offset.x - 32, y: b.offset.y - 32, w: 64, h: 64 };
-        
-        if (b.type === 'garden-bed' || b.type === 'garden-tree' || b.type === 'shop') {
-           hitbox = { x: b.offset.x - 16, y: b.offset.y - 16, w: 32, h: 32 };
-        }
+        // Footprint is centered at offset.x, offset.y
+        // For 2x2 (64x64), hitbox is offset-32 to offset+32
+        // For 1x1 (32x32), hitbox is offset-16 to offset+16
+        const isMulti = tiles.length > 1;
+        const hSize = isMulti ? 32 : 16;
 
         buildingObstacles.push({
-          ...hitbox,
+          x: b.offset.x - hSize,
+          y: b.offset.y - hSize,
+          w: hSize * 2,
+          h: hSize * 2,
           type: b.type,
-          isMultiTile: tiles.length > 1,
+          isMultiTile: isMulti,
           tiles: tiles,
           r: gridPos.r,
           c: gridPos.c
@@ -172,8 +175,9 @@ const TownView = ({
     const { c, r } = worldToGrid(x, y, currentSize);
     
     if (c >= 0 && c < currentSize && r >= 0 && r < currentSize) {
-      if (isPlacing) {
-        setMousePos(gridToWorld(c, r, currentSize));
+      if (isPlacing && pendingBuilding) {
+        const isMulti = getBuildingTiles(pendingBuilding.type, c, r).length > 1;
+        setMousePos(isMulti ? gridToWorldBuilding(c, r, currentSize) : gridToWorld(c, r, currentSize));
       }
     }
   };
@@ -262,10 +266,15 @@ const TownView = ({
       });
 
       if (isTerrainValid && !isOccupied) {
-        onBuild(pendingBuilding.type, pendingBuilding.cost, gridToWorld(hc, hr, currentSize));
+        const isMulti = pendingTiles.length > 1;
+        const spawnPos = isMulti 
+          ? gridToWorldBuilding(hc, hr, currentSize) 
+          : gridToWorld(hc, hr, currentSize);
+        onBuild(pendingBuilding.type, pendingBuilding.cost, spawnPos);
       }
       return;
     }
+
 
     // Land Expansion: Click on SAND or WATER
     if (hc >= 0 && hc < currentSize && hr >= 0 && hr < currentSize) {
@@ -459,63 +468,67 @@ const TownView = ({
             </div>
           ))}
 
-          {buildings.filter((b: any) => b.offset && b.offset.x !== undefined).map((building: any) => (
-            <div 
-              key={building.id}
-              className={`absolute flex flex-col items-center justify-center ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
-              onClick={(e) => handleBuildingClick(building, e)}
-              style={{
-                left: Math.round(building.offset.x + (currentSize * TILE_SIZE) / 2 + 16),
-                top: Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + 16),
-                zIndex: 100 + Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + 16),
-              }}
-            >
-              <div style={{ transform: 'translate(-50%, -100%)', transformOrigin: 'bottom center' }} className="flex flex-col items-center">
-                {(building.type === 'garden-bed' || building.type === 'garden-tree') && building.growthState ? (
-                  <div className="relative">
-                     <img 
-                       src={building.type === 'garden-tree' 
-                         ? `/images/garden-${building.growthState.produceType || 'apple'}-${building.growthState.currentLevel}.png`
-                         : `/images/garden-bed-${building.growthState.produceType || 'wheat'}-${building.growthState.currentLevel}.png`
-                       }
-                       alt={building.type}
-                       className={`w-10 h-10 object-contain ${building.growthState.currentLevel === 5 ? 'grayscale brightness-75' : ''}`}
-                       style={{ imageRendering: 'pixelated' }}
-                     />
-                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 3 && !building.growthState.isWatered && Date.now() >= (building.growthState.waterNeededAt || 0) && (
-                       <div className="absolute top-0 right-0 animate-bounce">
-                          <img src="/images/garden-watering-can.png" className="w-[12px] h-[12px] object-contain" alt="Needs Water" />
-                       </div>
-                     )}
-                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 4 && (
-                       <div className="absolute top-0 right-0 animate-pulse">
-                          <img src="/images/garden-pick.png" className="w-[12px] h-[12px] object-contain" alt="Ready to Harvest" />
-                       </div>
-                     )}
-                     {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 5 && (
-                       <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center">
-                          <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Remove Dead Plant" />
-                          <div className="text-[6px] bg-red-500 text-white px-1">DEAD</div>
-                       </div>
-                     )}
-                  </div>
-                ) : building.type === 'starter-house' ? (
-                  <img src="/images/house.png" alt="House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
-                ) : building.type === 'mini-house' ? (
-                  <img src="/images/mini-house.png" alt="Mini House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
-                ) : building.type === 'shop' ? (
-                  <img src="/images/Shop.png" alt="Shop" className="w-[32px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
-                ) : building.type === 'market' ? (
-                  <img src="/images/Market.png" alt="Market" className="w-[72px] h-[96px] object-contain" style={{ imageRendering: 'pixelated' }} />
-                ) : building.type === 'hotel' ? (
-                  <img src="/images/Storage.png" alt="Hotel" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
-                ) : (
-                  <img src={`/images/${building.type}.png`} alt={building.type} className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} onError={(e: any) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
-                )}
-                <span className="text-4xl hidden" role="img" aria-label={building.type}>{getBuildingEmoji(building.type)}</span>
+          {buildings.filter((b: any) => b.offset && b.offset.x !== undefined).map((building: any) => {
+            const isMulti = getBuildingTiles(building.type, 0, 0).length > 1;
+            const renderOffsetY = isMulti ? 32 : 16;
+            return (
+              <div 
+                key={building.id}
+                className={`absolute flex flex-col items-center justify-center ${isPlacing ? 'pointer-events-none' : 'pointer-events-auto cursor-pointer'}`}
+                onClick={(e) => handleBuildingClick(building, e)}
+                style={{
+                  left: Math.round(building.offset.x + (currentSize * TILE_SIZE) / 2),
+                  top: Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + renderOffsetY),
+                  zIndex: 100 + Math.round(building.offset.y + (currentSize * TILE_SIZE) / 2 + renderOffsetY),
+                }}
+              >
+                <div style={{ transform: 'translate(-50%, -100%)', transformOrigin: 'bottom center' }} className="flex flex-col items-center">
+                  {(building.type === 'garden-bed' || building.type === 'garden-tree') && building.growthState ? (
+                    <div className="relative">
+                       <img 
+                         src={building.type === 'garden-tree' 
+                           ? `/images/garden-${building.growthState.produceType || 'apple'}-${building.growthState.currentLevel}.png`
+                           : `/images/garden-bed-${building.growthState.produceType || 'wheat'}-${building.growthState.currentLevel}.png`
+                         }
+                         alt={building.type}
+                         className={`w-10 h-10 object-contain ${building.growthState.currentLevel === 5 ? 'grayscale brightness-75' : ''}`}
+                         style={{ imageRendering: 'pixelated' }}
+                       />
+                       {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 3 && !building.growthState.isWatered && Date.now() >= (building.growthState.waterNeededAt || 0) && (
+                         <div className="absolute top-0 right-0 animate-bounce">
+                            <img src="/images/garden-watering-can.png" className="w-[12px] h-[12px] object-contain" alt="Needs Water" />
+                         </div>
+                       )}
+                       {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 4 && (
+                         <div className="absolute top-0 right-0 animate-pulse">
+                            <img src="/images/garden-pick.png" className="w-[12px] h-[12px] object-contain" alt="Ready to Harvest" />
+                         </div>
+                       )}
+                       {!npcs.some((n: any) => n.targetId === building.id) && building.growthState.currentLevel === 5 && (
+                         <div className="absolute -top-12 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                            <img src="/images/garden-shovel.png" className="w-8 h-8 object-contain" alt="Remove Dead Plant" />
+                            <div className="text-[6px] bg-red-500 text-white px-1">DEAD</div>
+                         </div>
+                       )}
+                    </div>
+                  ) : building.type === 'starter-house' ? (
+                    <img src="/images/house.png" alt="House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : building.type === 'mini-house' ? (
+                    <img src="/images/mini-house.png" alt="Mini House" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : building.type === 'shop' ? (
+                    <img src="/images/Shop.png" alt="Shop" className="w-[32px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : building.type === 'market' ? (
+                    <img src="/images/Market.png" alt="Market" className="w-[72px] h-[96px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : building.type === 'hotel' ? (
+                    <img src="/images/Storage.png" alt="Hotel" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : (
+                    <img src={`/images/${building.type}.png`} alt={building.type} className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} onError={(e: any) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                  )}
+                  <span className="text-4xl hidden" role="img" aria-label={building.type}>{getBuildingEmoji(building.type)}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {!isInsideHouse && (
             <>
@@ -523,10 +536,10 @@ const TownView = ({
               <div 
                 className="absolute flex items-center justify-center"
                 style={{
-                  left: Math.round(avatarPos.x + (currentSize * TILE_SIZE) / 2 + 16),
-                  top: Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2 + 16),
+                  left: Math.round(avatarPos.x + (currentSize * TILE_SIZE) / 2),
+                  top: Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2),
                   width: TILE_SIZE, height: TILE_SIZE,
-                  zIndex: 100 + Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2 + 16),
+                  zIndex: 100 + Math.round(avatarPos.y + (currentSize * TILE_SIZE) / 2),
                 }}
               >
                 <div className="relative" style={{ 
@@ -536,14 +549,15 @@ const TownView = ({
                   <PlayerSprite 
                     direction={facing as any} 
                     isWalking={isWalking} 
+                    catType={catType}
                   />
                 </div>
               </div>
 
               {/* NPC Sprites */}
               {npcs.map(npc => {
-                const rx = Math.round(npc.x + (currentSize * TILE_SIZE) / 2 + 16);
-                const ry = Math.round(npc.y + (currentSize * TILE_SIZE) / 2 + 16);
+                const rx = Math.round(npc.x + (currentSize * TILE_SIZE) / 2);
+                const ry = Math.round(npc.y + (currentSize * TILE_SIZE) / 2);
                 
                 return (
                   <div 
@@ -585,30 +599,48 @@ const TownView = ({
 
           {isPlacing && pendingBuilding && mousePos && (
              <div 
-               className="absolute pointer-events-none flex flex-col items-center justify-center"
+               className="absolute pointer-events-none"
                style={{
-                 left: Math.round(mousePos.x + (currentSize * TILE_SIZE) / 2 + 16),
-                 top: Math.round(mousePos.y + (currentSize * TILE_SIZE) / 2 + 16),
-                 transform: 'translate(-50%, -100%)',
+                 left: Math.round(mousePos.x + (currentSize * TILE_SIZE) / 2),
+                 top: Math.round(mousePos.y + (currentSize * TILE_SIZE) / 2 + (getBuildingTiles(pendingBuilding.type, 0, 0).length > 1 ? 32 : 16)),
                  zIndex: 100,
-                 opacity: 0.6
+                 opacity: 0.8
                }}
              >
                {(() => {
+                 const isMulti = getBuildingTiles(pendingBuilding.type, 0, 0).length > 1;
                  const gridPos = worldToGrid(mousePos.x, mousePos.y, currentSize);
                  const pendingTiles = getBuildingTiles(pendingBuilding.type, gridPos.c, gridPos.r);
+                 
+                 const checkOccupied = (cc: number, rr: number) => 
+                   allObstacles.some(ob => 
+                     ob.isMultiTile 
+                       ? ob.tiles.some((t: any) => t.r === rr && t.c === cc)
+                       : ob.r === rr && ob.c === cc
+                   );
+
+                 const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
+                 const isTerrainValid = pendingTiles.every(t => {
+                   const tType = currentMap[t.r]?.[t.c];
+                   return tType === TILE_TYPES.GRASS;
+                 });
+
                  return (
                    <div className="relative">
-                      {pendingTiles.map((t, idx) => {
-                         const tType = currentMap[t.r]?.[t.c];
-                         const tTerrainValid = tType === TILE_TYPES.GRASS;
-                         const dx = t.c - gridPos.c;
-                         const dy = t.r - gridPos.r;
-                         return (
-                           <div key={idx} className={`absolute w-8 h-8 rounded-sm ${tTerrainValid ? 'bg-green-500/30' : 'bg-red-500/50'} border border-white/20`} style={{ transform: `translate(${dx * 32}px, ${dy * 32}px)` }} />
-                         );
-                      })}
-                      <div className="relative z-10 opacity-80">
+                      {/* Exact Footprint Highlight */}
+                      <div 
+                        className={`absolute rounded-sm ${isTerrainValid && !isOccupied ? 'bg-green-500/40' : 'bg-red-500/60'} border-2 border-white/40`} 
+                        style={{ 
+                          width: isMulti ? 64 : 32, 
+                          height: isMulti ? 64 : 32,
+                          left: 0,
+                          top: 0,
+                          transform: 'translate(-50%, -100%)'
+                        }} 
+                      />
+                      
+                      {/* Building Image */}
+                      <div style={{ transform: 'translate(-50%, -100%)' }} className="flex flex-col items-center">
                         {pendingBuilding.type === 'garden-bed' ? (
                           <img src="/images/garden-bed-wheat-1.png" alt="Ghost" className="w-10 h-10 object-contain" />
                         ) : pendingBuilding.type === 'garden-tree' ? (
