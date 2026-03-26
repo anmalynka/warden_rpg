@@ -1,5 +1,6 @@
 import React, { useMemo, useEffect, useRef, memo } from 'react';
 import PlayerSprite from './PlayerSprite';
+import { WorldShaderBackground } from './components/WorldShaderBackground';
 import { 
   TILE_TYPES, TILE_SIZE, 
   worldToGrid, gridToWorld, gridToWorldBuilding, ISLAND_MAP, getBuildingTiles 
@@ -633,10 +634,7 @@ const TownView = ({
                            backgroundPositionY: `-${(npc.facing === 'up' ? 3 : npc.facing === 'left' ? 1 : npc.facing === 'right' ? 2 : 0) * 32}px`,
                          }}
                        />
-                       {npc.status === 'staying' && (
-                         <div className="absolute -top-12 left-1/2 -translate-x-1/2 text-[8px] bg-green-600 text-white px-2 py-1 rounded border border-white animate-bounce">RESTING</div>
-                       )}
-                    </div>
+                       {/* RESTING tag removed */}                    </div>
                   </div>
                 );
               })}

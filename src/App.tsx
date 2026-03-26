@@ -416,18 +416,24 @@ function App() {
       window.removeEventListener('touchend', handleGlobalUp);
     };
   }, [isJoystickActive, startMovement, stopMovement, facing]);
+const handleHarvest = () => {
+  // Level Up Boost (Testing)
+  const nextLvl = level + 1;
+  setLevel(nextLvl);
+  setLastLevelReached(nextLvl);
 
-  const handleHarvest = () => {
-    // Inventory Boost
-    setInventory((prev: any) => ({
-      ...prev,
-      wheat: (prev.wheat || 0) + 10,
-      tomato: (prev.tomato || 0) + 10,
-      pumpkin: (prev.pumpkin || 0) + 10,
-      apple: (prev.apple || 0) + 10,
-      peach: (prev.peach || 0) + 10,
-      cherry: (prev.cherry || 0) + 10,
-    }));
+  // Inventory Boost
+  setInventory((prev: any) => ({
+    ...prev,
+    wheat: (prev.wheat || 0) + 10,
+    tomato: (prev.tomato || 0) + 10,
+    pumpkin: (prev.pumpkin || 0) + 10,
+    apple: (prev.apple || 0) + 10,
+    peach: (prev.peach || 0) + 10,
+    cherry: (prev.cherry || 0) + 10,
+    wood: (prev.wood || 0) + 10,
+  }));
+};
     // Resource Boost (+50 each for testing)
     setResources((prev: any) => ({
       ...prev,
