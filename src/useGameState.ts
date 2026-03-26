@@ -60,6 +60,13 @@ export const useGameState = () => {
     return saved ? JSON.parse(saved) : 0;
   });
 
+  const [totalXp, setTotalXp] = useState(() => {
+    const saved = localStorage.getItem('warden_total_xp');
+    return saved ? JSON.parse(saved) : 0;
+  });
+
+  const [lastLevelReached, setLastLevelReached] = useState<number | null>(null);
+
   const [inventory, setInventory] = useState<{[key: string]: number}>(() => {
     const saved = localStorage.getItem('warden_inventory');
     return saved ? JSON.parse(saved) : {
@@ -68,7 +75,8 @@ export const useGameState = () => {
       pumpkin: 0,
       apple: 0,
       peach: 0,
-      cherry: 0
+      cherry: 0,
+      wood: 0
     };
   });
 
@@ -100,14 +108,61 @@ export const useGameState = () => {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const XP_TO_NEXT_LEVEL = level * 20;
-
   // --- 2. CALLBACKS (HELPERS) ---
+  const getXpToNextLevel = useCallback((lvl: number) => {
+    if (lvl === 1) return 30;
+    // We cannot easily use recursion with dependency array if we want it stable,
+    // but for this simple math it's fine.
+    const calculate = (l: number): number => {
+      if (l === 1) return 30;
+      return Math.floor(Math.pow(calculate(l - 1), 1.1) + l);
+    };
+    return calculate(lvl);
+  }, []);
+
+  const XP_TO_NEXT_LEVEL = getXpToNextLevel(level);
+
+  const addXp = useCallback((amount: number) => {
+    setTotalXp(prev => prev + amount);
+    setXp(currentXp => {
+      let nextXp = currentXp + amount;
+      let currentLvl = level;
+      let needed = getXpToNextLevel(currentLvl);
+
+      if (nextXp >= needed) {
+        const newLvl = currentLvl + 1;
+        setLevel(newLvl);
+        setLastLevelReached(newLvl); // Trigger for Level Up Modal
+        
+        // Award rewards based on new level
+        setResources((prev: any) => {
+          let coins = 0, wood = 0, metal = 0;
+          if (newLvl >= 2 && newLvl <= 9) {
+            coins = 10; wood = 5; metal = 5;
+          } else if (newLvl >= 10 && newLvl <= 19) {
+            coins = 20; wood = 10; metal = 10;
+          } else if (newLvl >= 20) {
+            coins = 40; wood = 20; metal = 20;
+          }
+          return {
+            ...prev,
+            coins: (prev.coins || 0) + coins,
+            wood: (prev.wood || 0) + wood,
+            metal: (prev.metal || 0) + metal
+          };
+        });
+
+        return nextXp - needed;
+      }
+      return nextXp;
+    });
+  }, [level, getXpToNextLevel]);
+
   const gridToWorldLocal = useCallback((c: number, r: number) => gridToWorld(c, r, islandMap.length), [islandMap.length]);
   const worldToGridLocal = useCallback((x: number, y: number) => worldToGrid(x, y, islandMap.length), [islandMap.length]);
 
   // BFS Pathfinding Utility
-  const findPath = useCallback((start: {c: number, r: number}, end: {c: number, r: number}, currentIslandMap: number[][]) => {
+  const findPath = useCallback((start: {c: number, r: number}, end: {c: number, r: number}, currentIslandMap: number[][], npcType?: string, targetBuildingId?: string) => {
     if (start.c === end.c && start.r === end.r) return [];
     
     // Grid bounds
@@ -120,6 +175,9 @@ export const useGameState = () => {
     // Get current buildings for collision
     const buildingPositions = new Set<string>();
     buildings.forEach(b => {
+      // If this building is the NPC's target, don't treat it as an obstacle for pathfinding
+      if (b.id === targetBuildingId) return;
+      
       const gridPos = b.growthState?.coordinates || worldToGrid(b.offset.x, b.offset.y, currentSize);
       getBuildingTiles(b.type, gridPos.c, gridPos.r).forEach(t => {
         buildingPositions.add(`${t.c},${t.r}`);
@@ -188,15 +246,10 @@ export const useGameState = () => {
     setResources((prev: any) => ({ ...prev, coins: (prev.coins || 0) - expansionCost }));
 
     // Increase cost
-    setExpansionCost(prev => prev + 250);
+    setExpansionCost(prev => prev + 100);
 
     // Award XP
-    setXp(x => {
-        const threshold = level * 20;
-        const next = x + 40;
-        if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
-        return next;
-    });
+    addXp(40);
 
     setIslandMap(prevMap => {
       const currentSize = prevMap.length;
@@ -222,7 +275,7 @@ export const useGameState = () => {
       return map;
     });
     return true;
-  }, [resources.coins, expansionCost, level]);
+  }, [resources.coins, expansionCost, level, addXp]);
 
   const addBuilding = useCallback((type: string, cost: any, position?: { x: number, y: number }) => {
     // Deduct resources
@@ -237,12 +290,8 @@ export const useGameState = () => {
     const newId = `${type}-${Date.now()}`;
     
     // Award XP
-    setXp(x => {
-        const threshold = level * 20;
-        const next = x + 20;
-        if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
-        return next;
-    });
+    const isMajorBuilding = ['starter-house', 'mini-house', 'hotel'].includes(type);
+    addXp(isMajorBuilding ? 20 : 2);
 
     setBuildings((prevBuildings: any[]) => {
       const offset = position || { 
@@ -271,7 +320,7 @@ export const useGameState = () => {
     });
 
     return newId;
-  }, [resources, setResources, setBuildings, level, islandMap.length]);
+  }, [resources, setResources, setBuildings, level, islandMap.length, addXp]);
 
   const interactWithBuilding = useCallback((id: string, action: string, data?: any, onHarvest?: any) => {
     const now = Date.now();
@@ -283,17 +332,8 @@ export const useGameState = () => {
     }
 
     if (action === 'collect-default-wood') {
-      setResources(prev => ({
-        ...prev,
-        wood: (prev.wood || 0) + 10,
-        coins: (prev.coins || 0) + 5
-      }));
-      setXp(x => {
-          const threshold = level * 20;
-          const next = x + 5;
-          if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
-          return next;
-      });
+      setInventory(inv => ({ ...inv, wood: (inv.wood || 0) + 1 }));
+      addXp(2); // Keep existing XP
       setTreeCooldowns(prev => ({ ...prev, [id]: now + 60000 })); // 1 minute cooldown
       return;
     }
@@ -305,6 +345,7 @@ export const useGameState = () => {
 
       switch (action) {
         case 'select-produce':
+          addXp(2); // +2 for planting a crop/fruit
           return {
             ...b,
             growthState: {
@@ -331,21 +372,12 @@ export const useGameState = () => {
         case 'harvest':
           if (gs.currentLevel === 4) {
             // Award XP
-            setXp(x => {
-                const threshold = level * 20;
-                const next = x + 10;
-                if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
-                return next;
-            });
-            // Add Inventory & Resources (User request: 50 of each)
+            addXp(3); // +3 for harvesting a crop/fruit
+            
+            // Add to Inventory only
             const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
             setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
-            setResources(prev => ({
-              ...prev,
-              wood: (prev.wood || 0) + 50,
-              metal: (prev.metal || 0) + 50,
-              coins: (prev.coins || 0) + 50
-            }));
+            
             onHarvest?.(produce, 1);
 
             // Revert to level 3 for trees, level 1 for beds
@@ -380,12 +412,7 @@ export const useGameState = () => {
           if (gs.currentLevel >= 2) {
             // Award XP for clearing dead plants
             if (gs.currentLevel === 5) {
-                setXp(x => {
-                    const threshold = level * 20;
-                    const next = x + 20;
-                    if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
-                    return next;
-                });
+                addXp(2); 
             }
 
             return {
@@ -427,7 +454,7 @@ export const useGameState = () => {
       }
       return b;
     }).filter(Boolean));
-  }, [setResources, setIsInsideHouse, level, treeCooldowns]);
+  }, [setResources, setIsInsideHouse, level, treeCooldowns, addXp]);
 
   const addTerritory = useCallback((circle: any, pos: any) => {
     setExploredTerritory((prev: any) => {
@@ -480,7 +507,8 @@ export const useGameState = () => {
       [type]: (prev[type] || 0) + amount,
       coins: (prev.coins || 0) + 5
     }));
-  }, []);
+    addXp(Math.floor(amount / 5)); // +1 for every 5 resources gathered
+  }, [addXp]);
 
   const resetGame = useCallback((newCatType?: string, newPlayerName?: string) => {
     // Nuclear clear for all warden_ keys
@@ -517,7 +545,8 @@ export const useGameState = () => {
       pumpkin: 0,
       apple: 0,
       peach: 0,
-      cherry: 0
+      cherry: 0,
+      wood: 0
     });
     setExploredTerritory(null);
     setSpawnedResources([]);
@@ -528,7 +557,7 @@ export const useGameState = () => {
     setExpansionCost(500);
     setNpcs([]);
     setTreeCooldowns({});
-  }, []);
+  }, [setIslandMap, setExpansionCost, setNpcs, setTreeCooldowns, setResources, setInventory, setBuildings, setLevel, setXp, setExploredTerritory, setSpawnedResources, setTotalDistanceWalked, setAvatarPos, setRemovedDecorations, setCatType, setPlayerName, setHasCompletedOnboarding]);
 
   // --- 3. EFFECTS ---
 
@@ -560,6 +589,10 @@ export const useGameState = () => {
   useEffect(() => {
     localStorage.setItem('warden_xp', xp.toString());
   }, [xp]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_total_xp', JSON.stringify(totalXp));
+  }, [totalXp]);
 
   useEffect(() => {
     localStorage.setItem('warden_cat_type', catType);
@@ -643,14 +676,10 @@ export const useGameState = () => {
         hotels.forEach(hotel => {
           // 1. Eviction Logic: Check if guests were asked to leave
           if (hotel.hasGuestsAskedToLeave) {
-              const guests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id && n.status !== 'leaving');
+              const guests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id);
               if (guests.length > 0) {
-                  updatedNpcs = updatedNpcs.map(n => {
-                      if (n.type === 'vacationer' && n.targetHotelId === hotel.id && n.status !== 'leaving') {
-                          return { ...n, status: 'leaving', path: [], stayUntil: now - 1 };
-                      }
-                      return n;
-                  });
+                  // Instant disappearance as requested
+                  updatedNpcs = updatedNpcs.filter(n => !(n.type === 'vacationer' && n.targetHotelId === hotel.id));
                   changed = true;
               }
               // Reset the flag and pending vacationers in buildings state
@@ -661,13 +690,27 @@ export const useGameState = () => {
           if ((hotel.pendingVacationers || 0) > 0) {
             const currentGuests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id).length;
             if (currentGuests < 5) {
-              // Spawn at random edge
-              const edge = Math.floor(Math.random() * 4);
-              let sc = 0, sr = 0;
-              if (edge === 0) { sc = Math.floor(Math.random() * currentSize); sr = 0; }
-              else if (edge === 1) { sc = Math.floor(Math.random() * currentSize); sr = currentSize - 1; }
-              else if (edge === 2) { sc = 0; sr = Math.floor(Math.random() * currentSize); }
-              else { sc = currentSize - 1; sr = Math.floor(Math.random() * currentSize); }
+              // Find a walkable tile near the hotel
+              const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
+              let sc = hotelGrid.c, sr = hotelGrid.r;
+              let found = false;
+              
+              // Search in increasing circles around hotel
+              for (let radius = 2; radius < 10 && !found; radius++) {
+                for (let dr = -radius; dr <= radius && !found; dr++) {
+                  for (let dc = -radius; dc <= radius && !found; dc++) {
+                    const r = hotelGrid.r + dr;
+                    const c = hotelGrid.c + dc;
+                    if (r >= 0 && r < currentSize && c >= 0 && c < currentSize) {
+                      const tile = islandMap[r][c];
+                      if (tile === TILE_TYPES.GRASS || tile === TILE_TYPES.SAND) {
+                        sc = c; sr = r;
+                        found = true;
+                      }
+                    }
+                  }
+                }
+              }
 
               const worldPos = gridToWorldLocal(sc, sr);
               updatedNpcs.push({
@@ -753,15 +796,18 @@ export const useGameState = () => {
               const isTargetBuilding = buildings.some(b => {
                 const bGrid = worldToGridLocal(b.offset.x, b.offset.y);
                 const isNpcTarget = nextNpc.targetId === b.id;
-                return (bGrid.c === targetTile.c && bGrid.r === targetTile.r) || isNpcTarget;
+                const isHotelTarget = nextNpc.type === 'vacationer' && nextNpc.targetHotelId === b.id && b.type === 'hotel';
+                // Also check if the current target tile is within or very near the building
+                const isNearBuilding = Math.abs(bGrid.c - targetTile.c) <= 2 && Math.abs(bGrid.r - targetTile.r) <= 2;
+                return (bGrid.c === targetTile.c && bGrid.r === targetTile.r) || isNpcTarget || (isHotelTarget && isNearBuilding);
               });
 
               let blocked = false;
               if (!isTargetBuilding) {
-                // Building/Decoration hitbox check
+                // Building/Decoration hitbox check - slightly smaller padding for NPCs
                 blocked = allHitboxes.some(h =>
-                  nextX + 6 > h.x && nextX - 6 < h.x + h.w &&
-                  nextY + 6 > h.y && nextY - 6 < h.y + h.h
+                  nextX + 4 > h.x && nextX - 4 < h.x + h.w &&
+                  nextY + 4 > h.y && nextY - 4 < h.y + h.h
                 );
 
                 // Terrain check - must be on Grass or Sand
@@ -810,12 +856,12 @@ export const useGameState = () => {
                if (targets.length > 0) {
                  const target = targets[0];
                  const targetGrid = target.growthState.coordinates;
-                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap);
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap, nextNpc.type, target.id);
                  if (path) {
                     return { ...nextNpc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
                  }
                } else if (homeGrid && (nextNpc.c !== homeGrid.c || nextNpc.r !== homeGrid.r) && nextNpc.path.length === 0) {
-                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, homeGrid, islandMap);
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, homeGrid, islandMap, nextNpc.type, nextNpc.homeId);
                  if (path) return { ...nextNpc, path };
                }
             } else if (nextNpc.status === 'moving_to_work' && nextNpc.path.length === 0) {
@@ -839,11 +885,14 @@ export const useGameState = () => {
             if (nextNpc.status === 'arriving') {
               const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
               if (hotel) {
+                // Target is just outside the hotel's 2x2 area
                 const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
-                if (nextNpc.c === hotelGrid.c && nextNpc.r === hotelGrid.r) {
+                const targetGrid = { c: hotelGrid.c, r: hotelGrid.r + 2 }; // 2 tiles below center point
+
+                if (nextNpc.c === targetGrid.c && nextNpc.r === targetGrid.r) {
                   return { ...nextNpc, status: 'staying', lastAction: now };
                 } else if (nextNpc.path.length === 0) {
-                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, hotelGrid, islandMap);
+                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, targetGrid, islandMap, nextNpc.type, nextNpc.targetHotelId);
                   if (path) return { ...nextNpc, path };
                 }
               } else {
@@ -851,6 +900,8 @@ export const useGameState = () => {
               }
             } else if (nextNpc.status === 'staying') {
               if (now >= nextNpc.stayUntil) {
+                // Final payment upon natural departure
+                setResources(r => ({ ...r, coins: (r.coins || 0) + 50 }));
                 return { ...nextNpc, status: 'leaving', path: [] };
               }
               if (now - nextNpc.lastPayment >= 60000) {
@@ -858,32 +909,35 @@ export const useGameState = () => {
                 return { ...nextNpc, lastPayment: now };
               }
 
-              // Sightseeing Movement
-              if (nextNpc.path.length === 0 && now - (nextNpc.lastAction || 0) > 5000 + Math.random() * 10000) {
-                // Pick a random grass tile to visit
-                const grassTiles: {c: number, r: number}[] = [];
-                for (let r = 0; r < currentSize; r++) {
-                  for (let c = 0; c < currentSize; c++) {
-                    if (islandMap[r][c] === TILE_TYPES.GRASS) grassTiles.push({c, r});
+              // Sightseeing Movement: Random wandering on grass or sand
+              if (nextNpc.path.length === 0 && now - (nextNpc.lastAction || 0) > 500 + Math.random() * 2000) {
+                // Pick a random nearby walkable tile (Grass or Sand)
+                const walkableTiles: {c: number, r: number}[] = [];
+                const searchRadius = 5; // Local wandering radius
+                for (let dr = -searchRadius; dr <= searchRadius; dr++) {
+                  for (let dc = -searchRadius; dc <= searchRadius; dc++) {
+                    const r = nextNpc.r + dr;
+                    const c = nextNpc.c + dc;
+                    if (r >= 0 && r < currentSize && c >= 0 && c < currentSize) {
+                      const tile = islandMap[r][c];
+                      if (tile === TILE_TYPES.GRASS || tile === TILE_TYPES.SAND) {
+                        walkableTiles.push({c, r});
+                      }
+                    }
                   }
                 }
-                if (grassTiles.length > 0) {
-                  const target = grassTiles[Math.floor(Math.random() * grassTiles.length)];
-                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, target, islandMap);
+
+                if (walkableTiles.length > 0) {
+                  const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, target, islandMap, nextNpc.type, nextNpc.targetHotelId);
                   if (path) return { ...nextNpc, path, lastAction: now };
                 }
                 // Update lastAction even if no path found to avoid checking every tick
                 return { ...nextNpc, lastAction: now };
               }
             } else if (nextNpc.status === 'leaving') {
-               if (nextNpc.path.length === 0) {
-                 const edge = { c: 0, r: 0 };
-                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, edge, islandMap);
-                 if (path) return { ...nextNpc, path };
-                 else return null;
-               } else if (nextNpc.path.length === 0 && (nextNpc.c === 0 && nextNpc.r === 0)) {
-                 return null;
-               }
+              // Foxes disappear instantly as requested
+              return null;
             }
           }
 
@@ -895,7 +949,7 @@ export const useGameState = () => {
     }, 50); // Fast interval for smooth movement
 
     return () => clearInterval(npcInterval);
-  }, [buildings, islandMap, findPath, interactWithBuilding]);
+  }, [buildings, islandMap, findPath, interactWithBuilding, gridToWorldLocal, worldToGridLocal]);
 
   // Handle Accelerated Time (Sleeping)
   useEffect(() => {
@@ -1049,8 +1103,12 @@ export const useGameState = () => {
     interactWithBuilding,
     resetGame,
     level,
+    setLevel,
     xp,
+    totalXp,
     XP_TO_NEXT_LEVEL,
+    lastLevelReached,
+    setLastLevelReached,
     inventory,
     setInventory,
     treeCooldowns,

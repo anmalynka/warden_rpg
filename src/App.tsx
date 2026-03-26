@@ -33,8 +33,12 @@ function App() {
     interactWithBuilding,
     resetGame,
     level,
+    setLevel,
     xp,
+    totalXp,
     XP_TO_NEXT_LEVEL,
+    lastLevelReached,
+    setLastLevelReached,
     inventory,
     setInventory,
     treeCooldowns,
@@ -96,6 +100,13 @@ function App() {
   useEffect(() => {
     setUser(playerName);
   }, [playerName]);
+
+  // Mark onboarding as done as soon as it's shown, so it's skipped on refresh
+  useEffect(() => {
+    if (appState === 'onboarding') {
+      setHasCompletedOnboarding(true);
+    }
+  }, [appState, setHasCompletedOnboarding]);
 
   // Lifted Modal States
   const [shopOpen, setShopOpen] = useState(false);
@@ -424,6 +435,8 @@ function App() {
       metal: (prev.metal || 0) + 50,
       coins: (prev.coins || 0) + 50
     }));
+    // Level Boost
+    setLevel(l => l + 1);
   };
   const handleToggleTrip = () => {
     setIsTripping(!isTripping);
@@ -524,13 +537,12 @@ function App() {
 
   if (appState === 'onboarding') {
     return (
-      <OnboardingOverlay 
-        onComplete={handleOnboardingComplete} 
-        onSkip={() => setAppState('character-selection')} 
+      <OnboardingOverlay
+        onComplete={handleOnboardingComplete}
+        onSkip={handleOnboardingComplete}
       />
     );
   }
-
   if (appState === 'character-selection') {
     return <CharacterSelection onStart={handleCharacterSelectionComplete} />;
   }
@@ -560,6 +572,7 @@ function App() {
               {activeTab === 'village' && !isInsideHouse && (
                 <BuildMenu 
                   resources={resources} 
+                  level={level}
                   onBuild={(type: string, cost: any) => {
                     setPendingBuilding({type, cost});
                     setIsPlacing(true);
@@ -1244,6 +1257,88 @@ function App() {
           />
         )}
       </div>
+
+      {/* Level Up Modal */}
+      {lastLevelReached && (
+        <div className="fixed inset-0 z-[20000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 font-['Press_Start_2P']" onClick={() => setLastLevelReached(null)}>
+          <div className="bg-[#f9f5f0] border-4 border-[#3e2723] p-8 rounded-3xl shadow-xl flex flex-col items-center gap-6 max-w-[400px] w-full text-center animate-in zoom-in duration-300" onClick={e => e.stopPropagation()}>
+            <h2 className="text-[#3e2723] text-[16px] uppercase animate-bounce">LEVEL {lastLevelReached} REACHED!</h2>
+            
+            <div className="flex flex-col gap-4 w-full">
+               <div className="text-[#8b7a6d] text-[8px] uppercase">REWARDS EARNED:</div>
+               <div className="flex justify-center gap-6 bg-[#e6ded5] p-4 rounded-2xl">
+                 <div className="flex flex-col items-center gap-2">
+                   <img src="/images/tools-coins.png" className="w-6 h-6" alt="Coins" />
+                   <span className="text-[10px] text-[#3e2723]">+{lastLevelReached >= 20 ? 40 : lastLevelReached >= 10 ? 20 : 10}</span>
+                 </div>
+                 <div className="flex flex-col items-center gap-2">
+                   <img src="/images/tools-wood.png" className="w-6 h-6" alt="Wood" />
+                   <span className="text-[10px] text-[#3e2723]">+{lastLevelReached >= 20 ? 20 : lastLevelReached >= 10 ? 10 : 5}</span>
+                 </div>
+                 <div className="flex flex-col items-center gap-2">
+                   <img src="/images/tools-iron.png" className="w-6 h-6" alt="Metal" />
+                   <span className="text-[10px] text-[#3e2723]">+{lastLevelReached >= 20 ? 20 : lastLevelReached >= 10 ? 10 : 5}</span>
+                 </div>
+               </div>
+            </div>
+
+            {/* Unlock Section */}
+            {(lastLevelReached === 3 || lastLevelReached === 6 || lastLevelReached === 9 || lastLevelReached === 12 || lastLevelReached === 20) && (
+              <div className="flex flex-col gap-4 w-full border-t-2 border-[#d1c4b9] pt-6">
+                 <div className="text-[#3e2723] text-[8px] uppercase animate-pulse">NEW BUILDING AVAILABLE!</div>
+                 <div className="flex flex-col items-center gap-4 bg-[#f1ebe3] p-4 rounded-2xl self-center border-2 border-[#e9d681] w-full">
+                    <div className="flex items-center gap-4">
+                      {lastLevelReached === 3 && (
+                        <>
+                          <img src="/images/garden-apple-4.png" className="w-10 h-10 object-contain" alt="Tree" />
+                          <div className="text-[8px] text-[#3e2723] font-bold">GARDEN TREE</div>
+                        </>
+                      )}
+                      {lastLevelReached === 6 && (
+                        <>
+                          <img src="/images/mini-house.png" className="w-10 h-10 object-contain" alt="Condo" />
+                          <div className="text-[8px] text-[#3e2723] font-bold">WORKER’S CONDO</div>
+                        </>
+                      )}
+                      {lastLevelReached === 9 && (
+                        <>
+                          <img src="/images/Shop.png" className="w-10 h-10 object-contain" alt="Store" />
+                          <div className="text-[8px] text-[#3e2723] font-bold">GENERAL STORE</div>
+                        </>
+                      )}
+                      {lastLevelReached === 12 && (
+                        <>
+                          <img src="/images/Market.png" className="w-10 h-10 object-contain" alt="Market" />
+                          <div className="text-[8px] text-[#3e2723] font-bold">FARMERS’ MARKET</div>
+                        </>
+                      )}
+                      {lastLevelReached === 20 && (
+                        <>
+                          <img src="/images/Storage.png" className="w-10 h-10 object-contain" alt="Inn" />
+                          <div className="text-[8px] text-[#3e2723] font-bold">FOXGLOVE INN</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="text-[#8b7a6d] text-[7px] leading-relaxed uppercase max-w-[200px]">
+                      {lastLevelReached === 3 && "Plant fruit trees here to harvest apples, peaches and more."}
+                      {lastLevelReached === 6 && "Invite workers to live here and work in your garden automatically."}
+                      {lastLevelReached === 9 && "Buy raw materials, seeds and various resources."}
+                      {lastLevelReached === 12 && "Sell your harvest for coins to grow your village."}
+                      {lastLevelReached === 20 && "Attracts fox guests who will pay you for their stay."}
+                    </div>
+                 </div>
+              </div>
+            )}
+
+            <button 
+              onClick={() => setLastLevelReached(null)}
+              className="w-full py-4 text-[10px] btn-off-white mt-4"
+            >
+              SWEET!
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Floating Debug Button for Mobile testing */}
       {activeTab === 'village' && (
