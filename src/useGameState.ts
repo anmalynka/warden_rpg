@@ -274,16 +274,36 @@ export const useGameState = () => {
   }, [resources, setResources, setBuildings, level, islandMap.length]);
 
   const interactWithBuilding = useCallback((id: string, action: string, data?: any, onHarvest?: any) => {
+    const now = Date.now();
+
+    // Handle decoration-specific actions first (they are not buildings)
+    if (action === 'remove-decoration') {
+      setRemovedDecorations(prev => [...prev, id]);
+      return;
+    }
+
+    if (action === 'collect-default-wood') {
+      setResources(prev => ({
+        ...prev,
+        wood: (prev.wood || 0) + 10,
+        coins: (prev.coins || 0) + 5
+      }));
+      setXp(x => {
+          const threshold = level * 20;
+          const next = x + 5;
+          if (next >= threshold) { setLevel(l => l + 1); return next - threshold; }
+          return next;
+      });
+      setTreeCooldowns(prev => ({ ...prev, [id]: now + 60000 })); // 1 minute cooldown
+      return;
+    }
+
     setBuildings(prev => prev.map(b => {
       if (b.id !== id) return b;
       
-      const now = Date.now();
       const gs = b.growthState;
 
       switch (action) {
-        case 'remove-decoration':
-          setRemovedDecorations(prev => [...prev, id]);
-          return b;
         case 'select-produce':
           return {
             ...b,
@@ -384,7 +404,9 @@ export const useGameState = () => {
         case 'invite-worker':
          return { ...b, hasWorkerRequested: true };
         case 'invite-vacationer':
-         return { ...b, pendingVacationers: (b.pendingVacationers || 0) + 1 };
+         return { ...b, pendingVacationers: (b.pendingVacationers || 0) + 1, hasGuestsAskedToLeave: false };
+        case 'leave-vacationer':
+         return { ...b, pendingVacationers: 0, hasGuestsAskedToLeave: true };
         case 'leave-worker':          // We handle NPC removal in the NPC useEffect
           return { ...b, hasWorkerRequested: false };
         case 'move':
@@ -616,9 +638,26 @@ export const useGameState = () => {
           }
         });
 
-        // Invite Vacationers logic (Manual spawning)
+        // Invite Vacationers & Eviction logic
         const hotels = buildings.filter(b => b.type === 'hotel');
         hotels.forEach(hotel => {
+          // 1. Eviction Logic: Check if guests were asked to leave
+          if (hotel.hasGuestsAskedToLeave) {
+              const guests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id && n.status !== 'leaving');
+              if (guests.length > 0) {
+                  updatedNpcs = updatedNpcs.map(n => {
+                      if (n.type === 'vacationer' && n.targetHotelId === hotel.id && n.status !== 'leaving') {
+                          return { ...n, status: 'leaving', path: [], stayUntil: now - 1 };
+                      }
+                      return n;
+                  });
+                  changed = true;
+              }
+              // Reset the flag and pending vacationers in buildings state
+              setBuildings(prev => prev.map(b => b.id === hotel.id ? { ...b, hasGuestsAskedToLeave: false, pendingVacationers: 0 } : b));
+          }
+
+          // 2. Spawning Logic
           if ((hotel.pendingVacationers || 0) > 0) {
             const currentGuests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id).length;
             if (currentGuests < 5) {
@@ -719,10 +758,20 @@ export const useGameState = () => {
 
               let blocked = false;
               if (!isTargetBuilding) {
+                // Building/Decoration hitbox check
                 blocked = allHitboxes.some(h =>
                   nextX + 6 > h.x && nextX - 6 < h.x + h.w &&
                   nextY + 6 > h.y && nextY - 6 < h.y + h.h
                 );
+
+                // Terrain check - must be on Grass or Sand
+                if (!blocked) {
+                  const nextGrid = worldToGridLocal(nextX, nextY - 16); // Check at feet position
+                  const terrainType = islandMap[nextGrid.r]?.[nextGrid.c];
+                  if (terrainType !== TILE_TYPES.GRASS && terrainType !== TILE_TYPES.SAND) {
+                    blocked = true;
+                  }
+                }
               }
 
               if (!blocked) {
@@ -823,6 +872,8 @@ export const useGameState = () => {
                   const path = findPath({c: nextNpc.c, r: nextNpc.r}, target, islandMap);
                   if (path) return { ...nextNpc, path, lastAction: now };
                 }
+                // Update lastAction even if no path found to avoid checking every tick
+                return { ...nextNpc, lastAction: now };
               }
             } else if (nextNpc.status === 'leaving') {
                if (nextNpc.path.length === 0) {
