@@ -20,7 +20,7 @@ export const WorldShaderBackground: React.FC<WorldShaderBackgroundProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const shaderManagerRef = useRef<ShaderManager | null>(null);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number>(undefined);
 
   // Initialize ShaderManager and load textures
   useEffect(() => {
