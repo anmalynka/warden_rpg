@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as turf from '@turf/turf';
-import { generateIslandMap, TILE_TYPES, GRID_SIZE, INITIAL_GRID_SIZE, TILE_SIZE, getBuildingTiles, gridToWorldBuilding, gridToWorld, worldToGrid } from './MapConstants';
+import { generateIslandMap, TILE_TYPES, GRID_SIZE, INITIAL_GRID_SIZE, TILE_SIZE, getBuildingTiles, gridToWorldBuilding, gridToWorld, worldToGrid, getBuildingHitbox } from './MapConstants';
 
 export const useGameState = () => {
   // --- 1. STATE ---
@@ -183,6 +183,21 @@ export const useGameState = () => {
         buildingPositions.add(`${t.c},${t.r}`);
       });
     });
+
+    // Add decorations to buildingPositions
+    for (let r = 0; r < currentSize; r++) {
+      for (let c = 0; c < currentSize; c++) {
+        if (islandMap[r][c] === TILE_TYPES.GRASS) {
+          const rand = Math.sin(r * 12.9898 + c * 78.233) * 43758.5453 % 1;
+          if (Math.abs(rand) < 0.15) {
+            const id = `tree-${c}-${r}`;
+            if (!removedDecorations.includes(id)) {
+              buildingPositions.add(`${c},${r}`);
+            }
+          }
+        }
+      }
+    }
 
     while (queue.length > 0) {
       const path = queue.shift();

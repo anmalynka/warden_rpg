@@ -64,7 +64,7 @@ export const generateIslandMap = (size: number = INITIAL_GRID_SIZE) => {
 };
 
 export const getBuildingTiles = (type: string, c: number, r: number) => {
-  if (type === 'starter-house' || type === 'mini-house' || type === 'hotel') {
+  if (type === 'starter-house' || type === 'mini-house' || type === 'hotel' || type === 'market') {
     return [
       { r, c },
       { r, c: c + 1 },
@@ -72,13 +72,20 @@ export const getBuildingTiles = (type: string, c: number, r: number) => {
       { r: r + 1, c: c + 1 }
     ];
   }
-  if (type === 'market') {
-    return [
-      { r, c },
-      { r, c: c + 1 }
-    ];
-  }
   return [{ r, c }];
+};
+
+export const getBuildingHitbox = (type: string, x: number, y: number) => {
+  if (type === 'market') {
+    return { x: x - 25, y: y - 38, w: 50, h: 70 };
+  }
+  if (type === 'hotel') {
+    return { x: x - 40, y: y - 18, w: 80, h: 50 };
+  }
+  if (['starter-house', 'mini-house'].includes(type)) {
+    return { x: x - 32, y: y - 32, w: 64, h: 64 };
+  }
+  return { x: x - 16, y: y - 16, w: 32, h: 32 };
 };
 
 export const ISLAND_MAP = generateIslandMap(INITIAL_GRID_SIZE);

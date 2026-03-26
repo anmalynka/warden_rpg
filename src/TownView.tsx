@@ -1,9 +1,9 @@
-import React, { useMemo, useEffect, useRef, memo } from 'react';
+import React, { useMemo, useEffect, useRef, memo, useCallback } from 'react';
 import PlayerSprite from './PlayerSprite';
 import { WorldShaderBackground } from './components/WorldShaderBackground';
 import { 
   TILE_TYPES, TILE_SIZE, 
-  worldToGrid, gridToWorld, gridToWorldBuilding, ISLAND_MAP, getBuildingTiles 
+  worldToGrid, gridToWorld, gridToWorldBuilding, ISLAND_MAP, getBuildingTiles, getBuildingHitbox 
 } from './MapConstants';
 import type { Obstacle } from './types/game';
 
@@ -205,38 +205,8 @@ const TownView = ({
       if (b.offset) {
         const gridPos = worldToGrid(b.offset.x, b.offset.y, currentSize);
         const tiles = getBuildingTiles(b.type, gridPos.c, gridPos.r);
-        
-        // Footprint is centered at offset.x, offset.y
-        // For 2x2 (64x64), hitbox is offset-32 to offset+32
-        // For 1x1 (32x32), hitbox is offset-16 to offset+16
         const isMulti = tiles.length > 1;
-        let hitbox;
-
-        if (b.type === 'market') {
-          // Specific request: market is about 50x70px
-          hitbox = {
-            x: b.offset.x - 25,
-            y: b.offset.y - 38, // (offset.y + 32) - 70 = offset.y - 38
-            w: 50,
-            h: 70
-          };
-        } else if (b.type === 'hotel') {
-          // Specific request: hotel is about 80x50px
-          hitbox = {
-            x: b.offset.x - 40,
-            y: b.offset.y - 18, // (offset.y + 32) - 50 = offset.y - 18
-            w: 80,
-            h: 50
-          };
-        } else {
-          const hSize = isMulti ? 32 : 16;
-          hitbox = {
-            x: b.offset.x - hSize,
-            y: b.offset.y - hSize,
-            w: hSize * 2,
-            h: hSize * 2
-          };
-        }
+        const hitbox = getBuildingHitbox(b.type, b.offset.x, b.offset.y);
 
         buildingObstacles.push({
           ...hitbox,
@@ -250,10 +220,9 @@ const TownView = ({
     });
 
     const npcObstacles = npcs.map((npc: any) => {
-      const worldPos = gridToWorld(npc.c, npc.r, currentSize);
       return {
-        x: worldPos.x - 12,
-        y: worldPos.y - 12,
+        x: npc.x - 12,
+        y: npc.y - 12,
         w: 24,
         h: 24,
         type: 'npc'
@@ -653,7 +622,6 @@ const TownView = ({
              >
                {(() => {
                  const isMulti = getBuildingTiles(pendingBuilding.type, 0, 0).length > 1;
-                 const isMarket = pendingBuilding.type === 'market';
                  const gridPos = worldToGrid(mousePos.x, mousePos.y, currentSize);
                  const pendingTiles = getBuildingTiles(pendingBuilding.type, gridPos.c, gridPos.r);
                  const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
@@ -679,8 +647,8 @@ const TownView = ({
                       <div 
                         className={`absolute rounded-sm ${isTerrainValid && !isOccupied ? 'bg-green-500/40' : 'bg-red-500/60'} border-2 border-white/40`} 
                         style={{ 
-                          width: isMarket ? 64 : (isMulti ? 64 : 32), 
-                          height: isMarket ? 32 : (isMulti ? 64 : 32),
+                          width: isMulti ? 64 : 32, 
+                          height: isMulti ? 64 : 32,
                           left: 0,
                           top: 0,
                           transform: 'translate(-50%, -100%)'
