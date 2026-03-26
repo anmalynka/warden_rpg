@@ -64,12 +64,18 @@ export const generateIslandMap = (size: number = INITIAL_GRID_SIZE) => {
 };
 
 export const getBuildingTiles = (type: string, c: number, r: number) => {
-  if (type === 'starter-house' || type === 'mini-house' || type === 'hotel' || type === 'market') {
+  if (type === 'starter-house' || type === 'mini-house' || type === 'hotel') {
     return [
       { r, c },
       { r, c: c + 1 },
       { r: r + 1, c },
       { r: r + 1, c: c + 1 }
+    ];
+  }
+  if (type === 'market') {
+    return [
+      { r, c },
+      { r, c: c + 1 }
     ];
   }
   return [{ r, c }];

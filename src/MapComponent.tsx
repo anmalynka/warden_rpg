@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import * as turf from '@turf/turf';
 import { ResourceItem } from './HUD';
-const MapComponent = ({ 
-  isTripping = false, 
-  onToggleTrip, 
-  exploredTerritory, 
+const MapComponent = ({
+  isTripping = false,
+  onToggleTrip,
+  exploredTerritory,
   onAddTerritory,
   spawnedResources = [],
   onSetSpawnedResources,
@@ -18,41 +18,37 @@ const MapComponent = ({
   isPlacing = false,
   pendingBuilding = null,
   onPlaceBuilding,
-  buildings = []
+  buildings = [],
+  catType = 'grey-cat'
 }: any) => {
 
   const mapContainer = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<any>(null);
-  const resourceMarkers = useRef<any>({});
-  const buildingMarkers = useRef<any>({});
-  const prevPos = useRef<any>(null);
-  const lastFetchRef = useRef<any>(0);
-  const watchId = useRef<any>(null);
-  const isDraggingRef = useRef<any>(false);
-  
-  const [playerPos, setPlayerPos] = useState<[number, number]>([0, 0]);
-  const [nearbyResource, setNearbyResource] = useState<any>(null);
-  const [isScanning, setIsScanning] = useState(false);
+  const watchId = useRef<number | null>(null);
+  const prevPos = useRef<[number, number] | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [playerPos, setPlayerPos] = useState<[number, number]>([0, 0]);
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [isSearchingGPS, setIsSearchingGPS] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [nearbyResource, setNearbyResource] = useState<any>(null);
   const [failureMessage, setFailureMessage] = useState<string | null>(null);
+  const [isSearchingGPS, setIsSearchingGPS] = useState(true);
   const [pendingCollections, setPendingCollections] = useState<any[]>([]); // Track 3min waits
   const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
 
   const updateMarkerToCat = (el: HTMLElement) => {
     el.innerHTML = `
-      <div style="width: 32px; height: 32px; transform-origin: center center; overflow: hidden; position: relative; image-rendering: pixelated; image-rendering: crisp-edges;">
+      <div style="width: 96px; height: 96px; transform-origin: center center; overflow: hidden; position: relative; image-rendering: pixelated; image-rendering: crisp-edges;">
         <style>
           @keyframes map-cat-walk {
             from { background-position-x: 0px; }
-            to { background-position-x: -192px; }
+            to { background-position-x: -576px; }
           }
         </style>
         <div style="
-          width: 192px; height: 128px; 
-          background-image: url('/images/grey-cat.png'); 
+          width: 576px; height: 384px; 
+          background-image: url('/images/${catType}.png'); 
           background-repeat: no-repeat; 
           position: absolute; 
           image-rendering: pixelated; 
@@ -60,6 +56,7 @@ const MapComponent = ({
           background-position-y: 0px; 
           animation: map-cat-walk 0.8s steps(6) infinite;
           transform: translateZ(0);
+          background-size: 576px 384px;
         "></div>
       </div>
     `;
@@ -147,84 +144,50 @@ const MapComponent = ({
         
         map.addSource('territory', { type: 'geojson', data: (exploredTerritory || { type: 'FeatureCollection', features: [] }) as any });
         map.addSource('fog-of-war', { type: 'geojson', data: getFogData(center, exploredTerritory) as any });
-        map.addLayer({ id: 'territory-layer', type: 'fill', source: 'territory', paint: { 'fill-color': '#9fb68d', 'fill-opacity': 0.3 }});
-        map.addLayer({ id: 'fog-layer', type: 'fill', source: 'fog-of-war', paint: { 'fill-color': '#cbd5e1', 'fill-opacity': 0.85 }});
+
+        map.addLayer({ id: 'territory-layer', type: 'fill', source: 'territory', paint: { 'fill-color': '#fff', 'fill-opacity': 0 } });
+        map.addLayer({ id: 'fog-layer', type: 'fill', source: 'fog-of-war', paint: { 'fill-color': '#000', 'fill-opacity': 0.8 } });
 
         const el = document.createElement('div');
-        el.className = 'player-marker-pin';
-        el.style.width = '64px';
-        el.style.height = '64px';
+        el.className = 'player-marker';
         el.style.display = 'flex';
         el.style.alignItems = 'center';
         el.style.justifyContent = 'center';
-        
+
         // Initial marker content
         if (window.isTrippingGlobal) {
            updateMarkerToCat(el);
         } else {
-           el.innerHTML = '<img src="/images/grey-cat-avatar.png" style="width: 100%; height: 100%; object-contain" />';
+           el.innerHTML = `<img src="/images/grey-cat-avatar.png" style="width: 32px; height: 32px; object-fit: contain;" />`;
         }
         
         const marker = new maplibregl.Marker({ element: el, draggable: true })
           .setLngLat(center)
           .addTo(map);
+        
         markerRef.current = marker;
+        
+        // Handle Map Clicks for Building Placement
+        map.on('click', (e) => {
+           if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
+              onPlaceBuilding(window.pendingBuildingGlobal.type, window.pendingBuildingGlobal.cost, [e.lngLat.lng, e.lngLat.lat]);
+           }
+        });
 
-        // Sync initial state
+        map.on('mousemove', (e) => {
+           setMousePos(e.point);
+        });
+
+        // Track GPS
         updateGameStatePos(longitude, latitude, map, marker);
-
-        // Manual movement listeners
-        marker.on('dragstart', () => {
-          isDraggingRef.current = true;
-        });
-
-        marker.on('dragend', () => {
-          isDraggingRef.current = false;
-          const pos = marker.getLngLat();
-          updateGameStatePos(pos.lng, pos.lat, map, marker);
-        });
-
-        map.on('dblclick', (e: any) => {
-          if (window.isPlacingGlobal) {
-            onPlaceBuilding(null, null, 0, 0);
-            return;
-          }
-          updateGameStatePos(e.lngLat.lng, e.lngLat.lat, map, marker);
-        });
-
-        map.on('mousemove', (e: any) => {
-          setMousePos(e.point);
-        });
-
-        map.on('click', (e: any) => {
-          if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
-            // Avoid placing on double click by checking if we are still placing
-            // MapLibre click events fire before dblclick, so we might need a small delay 
-            // or just rely on the fact that dblclick will cancel it anyway if it was the intent.
-            // Actually, to be safe, we can use a timeout.
-            setTimeout(() => {
-              if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
-                 if (window.pendingBuildingGlobal.type === 'garden-bed' || window.pendingBuildingGlobal.type === 'garden-tree') {
-                   return;
-                 }
-                 onPlaceBuilding(
-                   window.pendingBuildingGlobal.type, 
-                   window.pendingBuildingGlobal.cost, 
-                   e.lngLat.lat, 
-                   e.lngLat.lng
-                 );
-              }
-            }, 200);
-          }
-        });
       });
     };
 
-    const handleGeoSuccess = (position: GeolocationPosition) => {
-      if (isDraggingRef.current) return;
+    const handleGeoSuccess = (pos: GeolocationPosition) => {
+      const { longitude, latitude } = pos.coords;
       setLocationError(null);
       setIsSearchingGPS(false);
-      const { longitude, latitude } = position.coords;
+      
       if (!mapRef.current) {
         initMap(longitude, latitude);
       } else {
@@ -232,20 +195,18 @@ const MapComponent = ({
       }
     };
 
-    const handleGeoError = (error: GeolocationPositionError) => {
-      console.warn("Geolocation Error:", error.message);
-      if (error.code === error.TIMEOUT) {
+    const handleGeoError = (err: GeolocationPositionError) => {
+      console.warn("GPS ERROR", err.code, err.message);
+      setIsSearchingGPS(false);
+      if (err.code === 3) {
         setLocationError("Searching for GPS... (Timeout)");
-      } else if (error.code === error.PERMISSION_DENIED) {
+      } else if (err.code === 1) {
         setLocationError("GPS permission denied.");
       } else {
         setLocationError("GPS signal lost. Falling back.");
       }
-      
-      if (!mapRef.current) {
-        // Fallback to Lviv but keep searching
-        initMap(24.02, 49.84); 
-      }
+      // Fallback for dev: simulate a position
+      if (!mapRef.current) initMap(13.405, 52.520);
     };
 
     // Watch for real movement - Use more permissive options for Android
@@ -283,7 +244,7 @@ const MapComponent = ({
       if (isTripping) {
         updateMarkerToCat(el);
       } else {
-        el.innerHTML = '<img src="/images/grey-cat-avatar.png" style="width: 100%; height: 100%; object-contain" />';
+        el.innerHTML = `<img src="/images/grey-cat-avatar.png" style="width: 32px; height: 32px; object-fit: contain;" />`;
       }
     }
     
@@ -299,31 +260,31 @@ const MapComponent = ({
       // Make roads bright and thick for navigation in trip mode
       roadLayers.forEach((l: any) => {
         if (l.type === 'line') {
-          map.setPaintProperty(l.id, 'line-color', '#ffffff');
+          map.setPaintProperty(l.id, 'line-color', '#fff');
           map.setPaintProperty(l.id, 'line-width', [
             'interpolate', ['linear'], ['zoom'],
-            14, 4,
-            20, 12
+            13, 2,
+            18, 20
           ]);
-          map.setPaintProperty(l.id, 'line-opacity', 0.8);
+          map.setPaintProperty(l.id, 'line-opacity', 0.9);
         }
       });
 
-      map.easeTo({ pitch: 85, zoom: 20.5, duration: 1500 }); // REDUCED MAX ZOOM
+      map.easeTo({ pitch: 45, zoom: 17, bearing: 0, duration: 1500 });
     } else {
       const layers = map.getStyle().layers;
       layers.forEach((l: any) => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'visible'); });
-      
-      // Reset roads to standard subtle style
+
+      // Reset roads
       roadLayers.forEach((l: any) => {
         if (l.type === 'line') {
-          map.setPaintProperty(l.id, 'line-color', '#ebebeb');
+          map.setPaintProperty(l.id, 'line-color', '#fff');
           map.setPaintProperty(l.id, 'line-width', [
             'interpolate', ['linear'], ['zoom'],
-            14, 1,
-            20, 4
+            13, 1,
+            18, 5
           ]);
-          map.setPaintProperty(l.id, 'line-opacity', 1);
+          map.setPaintProperty(l.id, 'line-opacity', 0.5);
         }
       });
 
@@ -345,11 +306,6 @@ const MapComponent = ({
       default: return '🏠';
     }
   };
-
-  // Render buildings on map (REMOVED)
-  useEffect(() => {
-    // Building markers removed as per request
-  }, []);
 
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
@@ -379,14 +335,14 @@ const MapComponent = ({
     if (nearbyResource) {
       const { id, type } = nearbyResource;
       const finishTime = Date.now() + 3 * 60 * 1000; // 3 minutes
-      
-      setPendingCollections(prev => [...prev, { 
-        id, 
-        type, 
-        finishTime, 
-        startPos: [...playerPos] 
+
+      setPendingCollections(prev => [...prev, {
+        id,
+        type,
+        finishTime,
+        startPos: [...playerPos]
       }]);
-      
+
       // Hide resource from map immediately
       onSetSpawnedResources((prev: any[]) => prev.filter(r => r.id !== id));
       setNearbyResource(null);
@@ -400,43 +356,38 @@ const MapComponent = ({
     }
   }, [pendingCollections.length]);
 
-  // Monitor collections
+  // Check for movement during pending collection
   useEffect(() => {
-    if (pendingCollections.length === 0) return;
+    if (!pendingCollections.length) return;
 
-    const checkInterval = setInterval(() => {
-      const currentTime = Date.now();
-      
+    const checkMovement = setInterval(() => {
+      pendingCollections.forEach(p => {
+        const dist = turf.distance(turf.point(p.startPos), turf.point(playerPos), { units: 'meters' });
+        if (dist > 50) {
+          handleCancelCollection(p.id, "Distance limit exceeded");
+        }
+      });
+    }, 2000);
+
+    return () => clearInterval(checkMovement);
+  }, [playerPos, handleCancelCollection, pendingCollections.length]);
+
+  // Auto-finish delayed collections
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now();
       setPendingCollections(prev => {
-        let needsUpdate = false;
-        const remaining: any[] = [];
-        
-        prev.forEach(p => {
-          // Check completion
-          if (currentTime >= p.finishTime) {
+        const finished = prev.filter(p => now >= p.finishTime);
+        if (finished.length > 0) {
+          finished.forEach(p => {
             onCollect(p.id, p.type, 10);
-            needsUpdate = true;
-          }
-          // Check movement (2m tolerance)
-          else {
-            const dist = turf.distance(turf.point(playerPos), turf.point(p.startPos), { units: 'meters' });
-            if (dist > 2) {
-              if (!failureMessage) {
-                setFailureMessage("MOVEMENT DETECTED!");
-                setTimeout(() => setFailureMessage(null), 3000);
-              }
-              needsUpdate = true;            } else {
-              remaining.push(p);
-            }
-          }
-        });
-        
-        return needsUpdate ? remaining : prev;
+          });
+        }
+        return prev.filter(p => now < p.finishTime);
       });
     }, 1000);
-
-    return () => clearInterval(checkInterval);
-  }, [playerPos, onCollect, pendingCollections.length]);
+    return () => clearInterval(timer);
+  }, [onCollect, pendingCollections.length]);
 
   // 1. PROXIMITY CHECK - Fast effect, only runs on player move
   useEffect(() => {
@@ -450,8 +401,8 @@ const MapComponent = ({
     
     const closest = spawnedResources.find((res: any) => {
       const dist = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'meters' });
-      if (dist < 20) console.log(`Resource ${res.id} is ${dist.toFixed(2)}m away`);
-      return dist < 5;
+      if (dist < 10) console.log(`Resource ${res.id} is ${dist.toFixed(2)}m away`);
+      return dist < 1;
     });
 
     if (closest) console.log("Found nearby resource:", closest.type);
@@ -557,21 +508,26 @@ const MapComponent = ({
     if (map.getSource('fog-of-war')) (map.getSource('fog-of-war') as any).setData(getFogData(playerPos, exploredTerritory));
   }, [mapReady, exploredTerritory, spawnedResources, isTripping]);
 
+  const resourceMarkers = useRef<any>({});
+  const distanceFromStart = pendingCollections.length ? turf.distance(turf.point(pendingCollections[0].startPos), turf.point(playerPos), { units: 'meters' }) : 0;
+
   return (
     <div className="fixed inset-0 z-0 bg-[#08060d] pixel-art overflow-hidden" style={{ contain: 'paint' }}>
       <div className="absolute inset-0 z-[-1]" style={{ background: 'linear-gradient(to bottom, #9fb68d 0%, #cbd5e1 100%)', opacity: 0.5 }} />
       <div ref={mapContainer} className="w-full h-full" style={{ imageRendering: 'pixelated' }} />
-      <div className="absolute left-4 bottom-48 z-20 flex flex-col gap-2">
-        <button onClick={handleZoomIn} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2">
+      
+      {/* HUD Controls - Moved to match village view (bottom left) */}
+      <div className="fixed bottom-48 left-4 z-10 flex flex-col gap-2">
+        <button onClick={handleZoomIn} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2 pointer-events-auto">
           <img src="/images/zoom-in.png" className="w-full h-full object-contain" alt="Zoom In" />
         </button>
-        <button onClick={handleZoomOut} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2">
+        <button onClick={handleZoomOut} className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 p-2 pointer-events-auto">
           <img src="/images/zoom-out.png" className="w-full h-full object-contain" alt="Zoom Out" />
         </button>
         {isTripping && (
-          <button 
-            onClick={handleRecenter} 
-            className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 mt-2 p-2"
+          <button
+            onClick={handleRecenter}
+            className="w-12 h-12 btn-off-white flex items-center justify-center active:scale-95 mt-2 p-2 pointer-events-auto"
           >
             <img src="/images/recenter.png" className="w-full h-full object-contain" alt="Recenter" />
           </button>
@@ -650,21 +606,22 @@ const MapComponent = ({
               >
                 X
               </button>
-              <div className="text-5xl animate-pulse">⏳</div>
-              <div className="flex flex-col gap-2">
-                <div className="text-[#5d4a44] text-[12px] font-['Press_Start_2P'] uppercase">COLLECTING {pendingCollections[0].type}</div>
-                <div className="text-[#8b7a6d] text-[8px] font-['Press_Start_2P']">STAY STILL TO RECEIVE 10 ITEMS</div>
+              <div className="text-[#5d4a44] text-[12px] font-['Press_Start_2P'] uppercase">COLLECTING...</div>
+              <div className="flex flex-col gap-2 items-center">
+                <div className="text-[#8b7a6d] text-[10px] font-['Press_Start_2P']">
+                   {Math.max(0, Math.floor((pendingCollections[0].finishTime - now) / 1000))}s
+                </div>
+                <div className="w-48 h-4 bg-[#e6ded5] rounded-full overflow-hidden border-2 border-[#8b7a6d]">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-1000" 
+                    style={{ width: `${Math.max(0, 100 - ((pendingCollections[0].finishTime - now) / (3 * 60 * 1000)) * 100)}%` }}
+                  ></div>
+                </div>
               </div>
-              
-              <div className="text-[#3e2723] text-2xl font-['Press_Start_2P'] tracking-tighter">
-                {(() => {
-                  const remainingMs = Math.max(0, pendingCollections[0].finishTime - now);
-                  const remainingSec = Math.floor(remainingMs / 1000);
-                  const m = Math.floor(remainingSec / 60);
-                  const s = remainingSec % 60;
-                  return `${m}:${s < 10 ? '0' : ''}${s}`;
-                })()}
-              </div>
+              <div className="text-[8px] text-[#8b7a6d] uppercase">STAY WITHIN 50M OF START POS</div>
+              {distanceFromStart > 50 && (
+                <div className="text-red-600 text-[8px] font-bold animate-pulse">TOO FAR! RETURN NOW!</div>
+              )}
            </div>
         </div>
       )}

@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useGameState } from './useGameState'
 import { ResourcesPanel, LevelCircle } from './HUD'
 import BuildMenu from './BuildMenu'
-import MapComponent from './MapComponent'
+// import MapComponent from './MapComponent'
 import LoginScreen from './LoginScreen'
 import RoleSelection from './RoleSelection'
 import BottomNav from './BottomNav'
@@ -10,24 +10,17 @@ import TownView from './TownView'
 import ShopUI from './ShopUI'
 import MarketUI from './MarketUI'
 import PlayerSprite from './PlayerSprite'
+import OnboardingOverlay from './OnboardingOverlay'
+import CharacterSelection from './CharacterSelection'
 import { useImagePreloader } from './hooks/useImagePreloader'
 import { ISLAND_MAP, TILE_SIZE, TILE_TYPES, getMapOffset } from './MapConstants'
+import type { Obstacle } from './types/game'
 import './App.css'
 
-interface Obstacle {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  r?: number;
-  c?: number;
-  type?: string;
-  isMultiTile?: boolean;
-  tiles?: { r: number; c: number }[];
-}
+const MapComponent = lazy(() => import('./MapComponent'));
 
 function App() {
-  useImagePreloader();
+  const imagesLoaded = useImagePreloader();
   const { 
     resources, setResources, buildings, addBuilding, 
     exploredTerritory, addTerritory, 
@@ -50,10 +43,25 @@ function App() {
     expansionCost,
     npcs,
     removedDecorations,
-    catType
+    catType,
+    setCatType,
+    playerName,
+    setPlayerName,
+    hasCompletedOnboarding,
+    setHasCompletedOnboarding
     } = useGameState();
-  const [appState, setAppState] = useState('main'); // Default to main to skip login
-  const [user, setUser] = useState('Dev');
+
+  const [appState, setAppState] = useState(() => {
+    if (!localStorage.getItem('warden_has_completed_onboarding') || localStorage.getItem('warden_has_completed_onboarding') === 'false') {
+      return 'onboarding';
+    }
+    if (!localStorage.getItem('warden_cat_type')) {
+      return 'character-selection';
+    }
+    return 'main';
+  });
+
+  const [user, setUser] = useState(playerName);
   const [role, setRole] = useState({ name: 'Warden', icon: '🛡️' });
   const [activeTab, setActiveTab] = useState('village'); // village, warden, settings
   const [isTripping, setIsTripping] = useState(false);
@@ -62,15 +70,32 @@ function App() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [facing, setFacing] = useState('down');
   const [isWalking, setIsWalking] = useState(false);
-  const [obstacles, setObstacles] = useState<Obstacle[]>([]);
   const [initialSelectedBuilding, setInitialSelectedBuilding] = useState<string | null>(null);
   const [harvestNotification, setHarvestNotification] = useState<{item: string, count: number} | null>(null);
   const [joystickPos, setJoystickPos] = useState({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
-  
-  const [showCharacterSelection, setShowCharacterSelection] = useState(() => {
-    return !localStorage.getItem('warden_cat_type');
-  });
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const handleOnboardingComplete = () => {
+    setHasCompletedOnboarding(true);
+    setAppState('character-selection');
+  };
+
+  const handleCharacterSelectionComplete = (name: string, type: string) => {
+    setPlayerName(name);
+    setCatType(type);
+    setAppState('main');
+  };
+
+  useEffect(() => {
+    setUser(playerName);
+  }, [playerName]);
 
   // Lifted Modal States
   const [shopOpen, setShopOpen] = useState(false);
@@ -80,6 +105,7 @@ function App() {
   const [confirmTreeCollect, setConfirmTreeCollect] = useState<string | null>(null);
   const [expansionConfirm, setExpansionConfirm] = useState<{c: number, r: number} | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id?: string, type: 'building' | 'decoration' | 'restart' } | null>(null);
+  const [obstacles, setObstacles] = useState<Obstacle[]>([]);
 
   const clickTimeoutRef = useRef<any>(null);
   const currentPosRef = useRef(avatarPos);
@@ -149,10 +175,12 @@ function App() {
 
     if (nextCollisions === 0) return true;
     
+    // If we're already in a collision area, allow any move that doesn't make it worse
     if (currentCollisions > 0) {
-      return nextCollisions < currentCollisions;
+      return nextCollisions <= currentCollisions;
     }
 
+    // If not in a collision, only allow moves into 0-collision areas
     return nextCollisions === 0;
   }, [getCollisionCount]); // Depends on the stable collision checker which now depends on islandMap
   
@@ -280,7 +308,10 @@ function App() {
             // Play "intent" animation for 0.2s even if move is blocked
             setIsWalking(true);
             if (animationTimeoutRef.current) clearTimeout(animationTimeoutRef.current);
-            animationTimeoutRef.current = setTimeout(() => setIsWalking(false), 200);
+            animationTimeoutRef.current = setTimeout(() => {
+              setIsWalking(false);
+              animationTimeoutRef.current = null;
+            }, 200);
           }
         }
       }
@@ -462,6 +493,47 @@ function App() {
       </div>
     );
   };
+
+  if (windowWidth > 600) {
+    return (
+      <div className="fixed inset-0 z-[20000] bg-[#1d3a19] flex flex-col items-center justify-center p-8 text-center font-['Press_Start_2P']">
+         <img src="/images/logo.png" className="w-32 h-32 mb-8 object-contain" alt="Logo" />
+         <h1 className="text-[#e9d681] text-xl mb-4">WARDEN</h1>
+         <p className="text-[#f9f5f0] text-[12px] leading-relaxed max-w-sm">
+           GAME IS OPTIMISED FOR MOBILE ONLY. PLEASE RESIZE YOUR BROWSER OR OPEN ON A MOBILE DEVICE.
+         </p>
+         <div className="mt-8 text-[#8b7a6d] text-[8px] uppercase opacity-50">Width: {windowWidth}px</div>
+      </div>
+    );
+  }
+
+  if (!imagesLoaded) {
+    return (
+      <div className="fixed inset-0 z-[10000] bg-[#1d3a19] flex flex-col items-center justify-center font-['Press_Start_2P']">
+         <div className="flex flex-col items-center gap-8">
+            <div className="relative w-24 h-24">
+               <div className="absolute inset-0 border-4 border-[#3e2723] rounded-full"></div>
+               <div className="absolute inset-0 border-4 border-[#e9d681] rounded-full border-t-transparent animate-spin"></div>
+               <img src="/images/tools-wood.png" className="absolute inset-0 m-auto w-10 h-10 object-contain" alt="Loading" />
+            </div>
+            <div className="text-[#e9d681] text-[10px] animate-pulse">LOADING WORLD...</div>
+         </div>
+      </div>
+    );
+  }
+
+  if (appState === 'onboarding') {
+    return (
+      <OnboardingOverlay 
+        onComplete={handleOnboardingComplete} 
+        onSkip={() => setAppState('character-selection')} 
+      />
+    );
+  }
+
+  if (appState === 'character-selection') {
+    return <CharacterSelection onStart={handleCharacterSelectionComplete} />;
+  }
 
   if (appState === 'login') {
     return <LoginScreen onLogin={handleLogin} />;
@@ -649,35 +721,42 @@ function App() {
               }
             }}
           >
-            <MapComponent 
-              isTripping={isTripping} 
-              onToggleTrip={handleToggleTrip}
-              exploredTerritory={exploredTerritory}
-              onAddTerritory={addTerritory}
-              spawnedResources={spawnedResources}
-              onSetSpawnedResources={setSpawnedResources}
-              onCollect={(id: string, type: string, amount: number) => {
-                collectResource(id, type, amount);
-                handleHarvestNotification(type, amount);
-              }}
-              resources={resources}
-              setResources={setResources}
-              addWalkDistance={addWalkDistance}
-              totalDistanceWalked={totalDistanceWalked}
-              isPlacing={isPlacing}
-              pendingBuilding={pendingBuilding}
-              onPlaceBuilding={(type: string, cost: any, lat: number, lng: number) => {
-                if (!type) {
+            <Suspense fallback={
+              <div className="w-full h-full bg-[#cbd5e1] flex items-center justify-center font-['Press_Start_2P'] text-[10px] text-[#5d4a44]">
+                LOADING MAP...
+              </div>
+            }>
+              <MapComponent 
+                isTripping={isTripping} 
+                onToggleTrip={handleToggleTrip}
+                exploredTerritory={exploredTerritory}
+                onAddTerritory={addTerritory}
+                spawnedResources={spawnedResources}
+                onSetSpawnedResources={setSpawnedResources}
+                onCollect={(id: string, type: string, amount: number) => {
+                  collectResource(id, type, amount);
+                  handleHarvestNotification(type, amount);
+                }}
+                resources={resources}
+                setResources={setResources}
+                addWalkDistance={addWalkDistance}
+                totalDistanceWalked={totalDistanceWalked}
+                isPlacing={isPlacing}
+                pendingBuilding={pendingBuilding}
+                onPlaceBuilding={(type: string, cost: any, lat: number, lng: number) => {
+                  if (!type) {
+                    setIsPlacing(false);
+                    setPendingBuilding(null);
+                    return;
+                  }
+                  addBuilding(type, cost, { x: lng, y: lat });
                   setIsPlacing(false);
                   setPendingBuilding(null);
-                  return;
-                }
-                addBuilding(type, cost, { x: lng, y: lat });
-                setIsPlacing(false);
-                setPendingBuilding(null);
-              }}
-              buildings={buildings}
-            />
+                }}
+                buildings={buildings}
+                catType={catType}
+              />
+            </Suspense>
           </div>
         )}
 
@@ -1093,46 +1172,6 @@ function App() {
           </div>
         )}
 
-        {showCharacterSelection && (
-          <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 font-['Press_Start_2P']" onClick={(e) => e.stopPropagation()}>
-            <div className="bg-[#f9f5f0] border-4 border-[#3e2723] p-8 rounded-3xl shadow-xl flex flex-col items-center gap-6 max-w-[400px] w-full text-center">
-              <h2 className="text-[#3e2723] text-[12px] uppercase">CHOOSE YOUR CHARACTER</h2>
-              <div className="flex gap-8 items-center py-4">
-                <div 
-                  className="flex flex-col items-center gap-4 cursor-pointer group"
-                  onClick={() => {
-                    resetGame('grey-cat');
-                    setShowCharacterSelection(false);
-                    setActiveTab('village');
-                  }}
-                >
-                  <div className="w-16 h-16 bg-[#e0d7cd] rounded-2xl border-4 border-[#3e2723] flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <div className="scale-150">
-                      <PlayerSprite direction="down" isWalking={false} catType="grey-cat" />
-                    </div>
-                  </div>
-                  <div className="text-[8px] text-[#3e2723]">GREY CAT</div>
-                </div>
-                <div 
-                  className="flex flex-col items-center gap-4 cursor-pointer group"
-                  onClick={() => {
-                    resetGame('orange-cat');
-                    setShowCharacterSelection(false);
-                    setActiveTab('village');
-                  }}
-                >
-                  <div className="w-16 h-16 bg-[#e0d7cd] rounded-2xl border-4 border-[#3e2723] flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <div className="scale-150">
-                      <PlayerSprite direction="down" isWalking={false} catType="orange-cat" />
-                    </div>
-                  </div>
-                  <div className="text-[8px] text-[#3e2723]">ORANGE CAT</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {deleteConfirm && (
           <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 pointer-events-auto font-['Press_Start_2P'] animate-in fade-in zoom-in duration-200">
             <div className="p-8 flex flex-col items-center gap-6 max-w-[320px] w-full bg-[#f9f5f0] border-4 border-[#3e2723] shadow-xl relative rounded-3xl">
@@ -1160,8 +1199,9 @@ function App() {
                     onClick={(e) => {
                         e.stopPropagation();
                         if (deleteConfirm.type === 'restart') {
+                          resetGame();
+                          setAppState('onboarding');
                           setDeleteConfirm(null);
-                          setShowCharacterSelection(true);
                         } else if (deleteConfirm.type === 'building' && deleteConfirm.id) {
                           interactWithBuilding(deleteConfirm.id, 'remove');
                           setDeleteConfirm(null);

@@ -1,9 +1,86 @@
-import React, { useMemo, useEffect, useRef } from 'react';
+import React, { useMemo, useEffect, useRef, memo } from 'react';
 import PlayerSprite from './PlayerSprite';
 import { 
   TILE_TYPES, TILE_SIZE, 
   worldToGrid, gridToWorld, gridToWorldBuilding, ISLAND_MAP, getBuildingTiles 
 } from './MapConstants';
+import type { Obstacle } from './types/game';
+
+const Tile = memo(({ 
+  c, r, type, currentSize, currentMap, playerGrid, canExpandThisTile 
+}: any) => {
+  const isGrass = type === TILE_TYPES.GRASS;
+  const isSand = type === TILE_TYPES.SAND;
+
+  const getType = (rr: number, cc: number) => {
+    if (rr < 0 || rr >= currentSize || cc < 0 || cc >= currentSize) return TILE_TYPES.WATER;
+    return currentMap[rr][cc];
+  };
+
+  const sandRadius = (dr: number, dc: number) => {
+    const vertical = getType(r + dr, c);
+    const horizontal = getType(r, c + dc);
+    return (vertical === TILE_TYPES.WATER && horizontal === TILE_TYPES.WATER) ? `12px` : '0px';
+  };
+
+  const grassRadius = (dr: number, dc: number) => {
+    const vertical = getType(r + dr, c);
+    const horizontal = getType(r, c + dc);
+    return (vertical !== TILE_TYPES.GRASS && horizontal !== TILE_TYPES.GRASS) ? `12px` : '0px';
+  };
+
+  return (
+    <div 
+      className="relative w-full h-full border-none outline-none overflow-hidden"
+      style={{ 
+        backgroundImage: 'url("/images/water.jpg")',
+        backgroundSize: '32px 32px',
+        imageRendering: 'pixelated',
+        margin: '-0.5px',
+        transform: 'scale(1.02)',
+        border: 'none'
+      }}
+    >
+      {(isSand || isGrass) && (
+        <div 
+          className="absolute inset-0 z-0"
+          style={{
+            backgroundImage: 'url("/images/sand.jpg")',
+            backgroundSize: '32px 32px',
+            imageRendering: 'pixelated',
+            borderTopLeftRadius: sandRadius(-1, -1),
+            borderTopRightRadius: sandRadius(-1, 1),
+            borderBottomLeftRadius: sandRadius(1, -1),
+            borderBottomRightRadius: sandRadius(1, 1),
+          }}
+        />
+      )}
+
+      {isGrass && (
+        <div 
+          className="absolute inset-0 z-10"
+          style={{
+            backgroundImage: 'url("/images/grass texture.png")',
+            backgroundSize: '32px 32px',
+            imageRendering: 'pixelated',
+            borderTopLeftRadius: grassRadius(-1, -1),
+            borderTopRightRadius: grassRadius(-1, 1),
+            borderBottomLeftRadius: grassRadius(1, -1),
+            borderBottomRightRadius: grassRadius(1, 1),
+          }}
+        />
+      )}
+
+      {canExpandThisTile && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+           <div className="bg-[#3e2723]/80 text-[#e9d681] text-[3px] px-1 py-0.5 rounded animate-pulse border border-[#e9d681] whitespace-nowrap">
+             BUY MORE LAND
+           </div>
+        </div>
+      )}
+    </div>
+  );
+});
 
 const TownView = ({ 
   avatarPos, 
@@ -121,7 +198,7 @@ const TownView = ({
       };
     });
 
-    const buildingObstacles: any[] = [];
+    const buildingObstacles: Obstacle[] = [];
     
     buildings.forEach((b: any) => {
       if (b.offset) {
@@ -281,10 +358,19 @@ const TownView = ({
         );
 
       const pendingTiles = getBuildingTiles(pendingBuilding.type, hc, hr);
+      const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
       
-      const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
+      const isOccupied = pendingTiles.some(t => {
+        // Normal building occupancy
+        const occupiedByBuilding = checkOccupied(t.c, t.r);
+        // Player's current tile occupancy
+        const occupiedByPlayer = t.c === playerGrid.c && t.r === playerGrid.r;
+        return occupiedByBuilding || occupiedByPlayer;
+      });
+
       const isTerrainValid = pendingTiles.every(t => {
         const tType = currentMap[t.r]?.[t.c];
+        // Strictly only allow building on grass (TILE_TYPES.GRASS which is 3)
         return tType === TILE_TYPES.GRASS;
       });
 
@@ -377,86 +463,23 @@ const TownView = ({
             }}
           >
             {currentMap.map((row, r) => row.map((type, c) => {
-              const isGrass = type === TILE_TYPES.GRASS;
               const isSand = type === TILE_TYPES.SAND;
-              const isWater = type === TILE_TYPES.WATER;
-
-              const getType = (rr: number, cc: number) => {
-                if (rr < 0 || rr >= currentSize || cc < 0 || cc >= currentSize) return TILE_TYPES.WATER;
-                return currentMap[rr][cc];
-              };
-
-              const sandRadius = (dr: number, dc: number) => {
-                 const vertical = getType(r + dr, c);
-                 const horizontal = getType(r, c + dc);
-                 // Round if both adjacent sides are water
-                 return (vertical === TILE_TYPES.WATER && horizontal === TILE_TYPES.WATER) ? `12px` : '0px';
-              };
-
-              const grassRadius = (dr: number, dc: number) => {
-                 const vertical = getType(r + dr, c);
-                 const horizontal = getType(r, c + dc);
-                 // Round if both adjacent sides are not grass
-                 return (vertical !== TILE_TYPES.GRASS && horizontal !== TILE_TYPES.GRASS) ? `12px` : '0px';
-              };
-
               const isPlayerOnLand = currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.SAND || currentMap[playerGrid.r]?.[playerGrid.c] === TILE_TYPES.GRASS;
               const distToPlayer = Math.sqrt(Math.pow(playerGrid.c - c, 2) + Math.pow(playerGrid.r - r, 2));
-              const canExpandThisTile = (isSand || isWater) && isPlayerOnLand && distToPlayer <= 2.5;
+              const isLabelTile = (r * currentSize + c) % 8 === 0;
+              const canExpandThisTile = isSand && isPlayerOnLand && distToPlayer <= 2.5 && isLabelTile;
 
               return (
-                <div 
+                <Tile 
                   key={`${c}-${r}`}
-                  className="relative w-full h-full border-none outline-none overflow-hidden"
-                  style={{ 
-                    backgroundImage: 'url("/images/water.jpg")',
-                    backgroundSize: '32px 32px',
-                    imageRendering: 'pixelated',
-                    // @ts-ignore
-                    imageRendering: 'crisp-edges',
-                    margin: '-0.5px',
-                    transform: 'scale(1.02)',
-                    border: 'none'
-                  }}
-                >
-                  {(isSand || isGrass) && (
-                    <div 
-                      className="absolute inset-0 z-0"
-                      style={{
-                        backgroundImage: 'url("/images/sand.jpg")',
-                        backgroundSize: '32px 32px',
-                        imageRendering: 'pixelated',
-                        borderTopLeftRadius: sandRadius(-1, -1),
-                        borderTopRightRadius: sandRadius(-1, 1),
-                        borderBottomLeftRadius: sandRadius(1, -1),
-                        borderBottomRightRadius: sandRadius(1, 1),
-                      }}
-                    />
-                  )}
-
-                  {isGrass && (
-                    <div 
-                      className="absolute inset-0 z-10"
-                      style={{
-                        backgroundImage: 'url("/images/grass texture.png")',
-                        backgroundSize: '32px 32px',
-                        imageRendering: 'pixelated',
-                        borderTopLeftRadius: grassRadius(-1, -1),
-                        borderTopRightRadius: grassRadius(-1, 1),
-                        borderBottomLeftRadius: grassRadius(1, -1),
-                        borderBottomRightRadius: grassRadius(1, 1),
-                      }}
-                    />
-                  )}
-
-                  {canExpandThisTile && (
-                    <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-                       <div className="bg-[#3e2723]/80 text-[#e9d681] text-[4px] px-1 py-0.5 rounded animate-pulse border border-[#e9d681]">
-                         EXPAND
-                       </div>
-                    </div>
-                  )}
-                </div>
+                  c={c}
+                  r={r}
+                  type={type}
+                  currentSize={currentSize}
+                  currentMap={currentMap}
+                  playerGrid={playerGrid}
+                  canExpandThisTile={canExpandThisTile}
+                />
               );
             }))}
           </div>
@@ -541,7 +564,7 @@ const TownView = ({
                   ) : building.type === 'shop' ? (
                     <img src="/images/Shop.png" alt="Shop" className="w-[32px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : building.type === 'market' ? (
-                    <img src="/images/Market.png" alt="Market" className="w-[72px] h-[96px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                    <img src="/images/Market.png" alt="Market" className="w-[64px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : building.type === 'hotel' ? (
                     <img src="/images/Storage.png" alt="Hotel" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : (
@@ -632,9 +655,11 @@ const TownView = ({
              >
                {(() => {
                  const isMulti = getBuildingTiles(pendingBuilding.type, 0, 0).length > 1;
+                 const isMarket = pendingBuilding.type === 'market';
                  const gridPos = worldToGrid(mousePos.x, mousePos.y, currentSize);
                  const pendingTiles = getBuildingTiles(pendingBuilding.type, gridPos.c, gridPos.r);
-                 
+                 const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
+
                  const checkOccupied = (cc: number, rr: number) => 
                    allObstacles.some(ob => 
                      ob.isMultiTile 
@@ -642,9 +667,11 @@ const TownView = ({
                        : ob.r === rr && ob.c === cc
                    );
 
-                 const isOccupied = pendingTiles.some(t => checkOccupied(t.c, t.r));
-                 const isTerrainValid = pendingTiles.every(t => {
-                   const tType = currentMap[t.r]?.[t.c];
+                 const isOccupied = pendingTiles.some(t => {
+                   return checkOccupied(t.c, t.r) || (t.c === playerGrid.c && t.r === playerGrid.r);
+                 });
+                 const isTerrainValid = pendingTiles.every(t => {                   const tType = currentMap[t.r]?.[t.c];
+                   // Strictly only allow building on grass (3)
                    return tType === TILE_TYPES.GRASS;
                  });
 
@@ -654,8 +681,8 @@ const TownView = ({
                       <div 
                         className={`absolute rounded-sm ${isTerrainValid && !isOccupied ? 'bg-green-500/40' : 'bg-red-500/60'} border-2 border-white/40`} 
                         style={{ 
-                          width: isMulti ? 64 : 32, 
-                          height: isMulti ? 64 : 32,
+                          width: isMarket ? 64 : (isMulti ? 64 : 32), 
+                          height: isMarket ? 32 : (isMulti ? 64 : 32),
                           left: 0,
                           top: 0,
                           transform: 'translate(-50%, -100%)'
@@ -675,7 +702,7 @@ const TownView = ({
                         ) : pendingBuilding.type === 'shop' ? (
                           <img src="/images/Shop.png" alt="Ghost" className="w-[32px] h-[32px] object-contain" />
                         ) : pendingBuilding.type === 'market' ? (
-                          <img src="/images/Market.png" alt="Ghost" className="w-[72px] h-[96px] object-contain" />
+                          <img src="/images/Market.png" alt="Ghost" className="w-[64px] h-[32px] object-contain" />
                         ) : pendingBuilding.type === 'hotel' ? (
                           <img src="/images/Storage.png" alt="Ghost" className="w-[72px] h-[72px] object-contain" />
                         ) : (

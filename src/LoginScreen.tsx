@@ -13,7 +13,8 @@ const LoginScreen = ({ onLogin }) => {
 
   return (
     <div className="fixed inset-0 z-[5000] bg-[#1d3a19] flex items-center justify-center p-6 font-['Press_Start_2P']">
-      <div className="w-full max-w-sm bg-[#8d6e63] border-4 border-[#3e2723] p-8 rounded-lg shadow-2xl pixel-border">
+      <div className="w-full max-w-sm bg-[#8d6e63] border-4 border-[#3e2723] p-8 rounded-lg shadow-2xl pixel-border flex flex-col items-center">
+        <img src="/images/logo.png" className="w-24 h-24 mb-6 object-contain" alt="Warden Logo" />
         <h1 className="text-white text-xl text-center mb-8 drop-shadow-md">WARDEN RPG</h1>
         
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">

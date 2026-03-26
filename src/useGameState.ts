@@ -85,6 +85,16 @@ export const useGameState = () => {
     return saved || 'grey-cat';
   });
 
+  const [playerName, setPlayerName] = useState(() => {
+    const saved = localStorage.getItem('warden_player_name');
+    return saved || 'Warden';
+  });
+
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(() => {
+    const saved = localStorage.getItem('warden_has_completed_onboarding');
+    return saved === 'true';
+  });
+
   const [removedDecorations, setRemovedDecorations] = useState<string[]>(() => {
     const saved = localStorage.getItem('warden_removed_decorations');
     return saved ? JSON.parse(saved) : [];
@@ -189,32 +199,23 @@ export const useGameState = () => {
     });
 
     setIslandMap(prevMap => {
-      let currentSize = prevMap.length;
-      let map = prevMap.map(row => [...row]);
+      const currentSize = prevMap.length;
+      const map = prevMap.map(row => [...row]);
 
-      const queue = [{ c: startC, r: startR, dist: 0 }];
-      const visited = new Set([`${startC},${startR}`]);
-      const maxDist = 3;
+      // Expand in a 3x3 area around the clicked point
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const r = startR + dr;
+          const c = startC + dc;
 
-      while (queue.length > 0) {
-        const { c, r, dist } = queue.shift()!;
-        
-        if (map[r] && map[r][c] !== undefined) {
-          if (dist < maxDist - 1) map[r][c] = TILE_TYPES.GRASS;
-          else if (dist < maxDist) map[r][c] = TILE_TYPES.SAND;
-        }
-
-        if (dist < maxDist) {
-          const neighbors = [
-            { c: c, r: r - 1 }, { c: c, r: r + 1 },
-            { c: c - 1, r: r }, { c: c + 1, r: r }
-          ];
-          for (const n of neighbors) {
-            const key = `${n.c},${n.r}`;
-            if (!visited.has(key)) {
-              visited.add(key);
-              queue.push({ ...n, dist: dist + 1 });
+          if (r >= 0 && r < currentSize && c >= 0 && c < currentSize) {
+            const currentTile = map[r][c];
+            if (currentTile === TILE_TYPES.WATER) {
+              map[r][c] = TILE_TYPES.SAND;
+            } else if (currentTile === TILE_TYPES.SAND) {
+              map[r][c] = TILE_TYPES.GRASS;
             }
+            // If already GRASS, do nothing
           }
         }
       }
@@ -290,14 +291,23 @@ export const useGameState = () => {
               ...gs,
               produceType: data.produceType,
               lastProduceType: data.produceType,
-              currentLevel: 1,
+              currentLevel: 2, // Move to stage 2 right away
               startTime: now,
               lastUpdate: now,
-              isWatered: true // Auto-watered on plant
+              isWatered: false,
+              waterNeededAt: now + 300000 // 5 minutes (300,000ms) until Stage 3
             }
           };
         case 'water':
-          return { ...b, growthState: { ...gs, isWatered: true, lastUpdate: now } };
+          return { 
+            ...b, 
+            growthState: { 
+              ...gs, 
+              isWatered: true, 
+              lastUpdate: now,
+              harvestReadyAt: now + 120000 // Stage 4 in 2 min (120,000ms)
+            } 
+          };
         case 'harvest':
           if (gs.currentLevel === 4) {
             // Award XP
@@ -398,7 +408,47 @@ export const useGameState = () => {
   }, [setResources, setIsInsideHouse, level, treeCooldowns]);
 
   const addTerritory = useCallback((circle: any, pos: any) => {
-    // This is for the map view, logic not provided but kept for API compatibility
+    setExploredTerritory((prev: any) => {
+      if (!prev) return circle;
+      try {
+        const unioned = turf.union(turf.featureCollection([prev, circle]));
+        return unioned || prev;
+      } catch (e) {
+        console.warn("Territory union failed", e);
+        return prev;
+      }
+    });
+
+    // Spawn logic: Every 100m of new exploration
+    setLastSpawnLocations((prev: any[]) => {
+      const isTooClose = prev.some((loc: any) => turf.distance(turf.point(pos), turf.point(loc), { units: 'meters' }) < 100);
+      if (isTooClose) return prev;
+
+      // Spawn 1 resource randomly around pos (volume reduced to 0.5x-ish from 1-3)
+      const count = 1;
+      const newResources: any[] = [];
+      const types = ['wood', 'metal', 'coins'];
+      const icons: any = { wood: '/images/tools-wood.png', metal: '/images/tools-iron.png', coins: '/images/tools-coins.png' };
+
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 0.01 + Math.random() * 0.04; // 10-50 meters away
+        const resLng = pos[0] + (dist / 111.32) * Math.cos(angle); // rough estimate
+        const resLat = pos[1] + (dist / 110.57) * Math.sin(angle);
+        
+        const type = types[Math.floor(Math.random() * types.length)];
+        newResources.push({
+          id: `res-${Date.now()}-${Math.random()}`,
+          type,
+          lng: resLng,
+          lat: resLat,
+          icon: icons[type]
+        });
+      }
+
+      setSpawnedResources((current: any) => [...current, ...newResources]);
+      return [...prev, pos];
+    });
   }, []);
 
   const collectResource = useCallback((id: string, type: string, amount: number = 10) => {
@@ -410,7 +460,7 @@ export const useGameState = () => {
     }));
   }, []);
 
-  const resetGame = useCallback((newCatType?: string) => {
+  const resetGame = useCallback((newCatType?: string, newPlayerName?: string) => {
     // Nuclear clear for all warden_ keys
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('warden_')) {
@@ -422,6 +472,14 @@ export const useGameState = () => {
        setCatType(newCatType);
        localStorage.setItem('warden_cat_type', newCatType);
     }
+
+    if (newPlayerName) {
+       setPlayerName(newPlayerName);
+       localStorage.setItem('warden_player_name', newPlayerName);
+    }
+
+    setHasCompletedOnboarding(false);
+    localStorage.removeItem('warden_has_completed_onboarding');
 
     setBuildings([]);
     setLevel(1);
@@ -484,6 +542,14 @@ export const useGameState = () => {
   useEffect(() => {
     localStorage.setItem('warden_cat_type', catType);
   }, [catType]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_player_name', playerName);
+  }, [playerName]);
+
+  useEffect(() => {
+    localStorage.setItem('warden_has_completed_onboarding', hasCompletedOnboarding.toString());
+  }, [hasCompletedOnboarding]);
 
   useEffect(() => {
     localStorage.setItem('warden_removed_decorations', JSON.stringify(removedDecorations));
@@ -620,7 +686,7 @@ export const useGameState = () => {
 
         // 3. Movement & Task Logic
         updatedNpcs = updatedNpcs.map(npc => {
-          let nextNpc = { ...npc };
+          const nextNpc = { ...npc };
 
           // Smooth Movement
           if (npc.path && npc.path.length > 0) {
@@ -785,7 +851,6 @@ export const useGameState = () => {
     if (!isInsideHouse || !lastSleepTick) return;
 
     const interval = setInterval(() => {
-      const now = Date.now();
       const bonusTime = 60000; // 1 real second = 1 minute (60,000ms) bonus growth
       
       setMinutesSlept(prev => prev + 1);
@@ -795,10 +860,29 @@ export const useGameState = () => {
           const gs = b.growthState;
           if (gs.currentLevel === 5 || !gs.produceType) return b;
           
-          // Advance startTime so it grows faster
-          return { ...b, growthState: { ...gs, startTime: gs.startTime - bonusTime } };
+          // Advance all milestones so it grows faster
+          const updates: any = {
+            startTime: gs.startTime - bonusTime,
+            lastUpdate: gs.lastUpdate - bonusTime
+          };
+          if (gs.waterNeededAt) updates.waterNeededAt = gs.waterNeededAt - bonusTime;
+          if (gs.harvestReadyAt) updates.harvestReadyAt = gs.harvestReadyAt - bonusTime;
+          if (gs.deathAt) updates.deathAt = gs.deathAt - bonusTime;
+
+          return { ...b, growthState: { ...gs, ...updates } };
         }
         return b;
+      }));
+
+      setNpcs(prev => prev.map(n => {
+        if (n.type === 'vacationer') {
+          return {
+            ...n,
+            stayUntil: n.stayUntil - bonusTime,
+            lastPayment: n.lastPayment - bonusTime
+          };
+        }
+        return n;
       }));
     }, 1000);
 
@@ -816,24 +900,33 @@ export const useGameState = () => {
             const gs = b.growthState;
             if (!gs.produceType || gs.currentLevel === 5) return b;
 
-            // Simple time-based growth (every 10s check)
-            const elapsed = now - gs.startTime;
-            const growthInterval = 30000; // 30s per level
-            let targetLevel = Math.min(4, Math.floor(elapsed / growthInterval) + 1);
+            let targetLevel = gs.currentLevel;
 
-            // Water requirement for level 4
-            if (targetLevel === 4 && !gs.isWatered) targetLevel = 3;
+            // Requirements:
+            // 2 -> 3: 5 minutes (300,000ms)
+            // 3 -> 4: 2 minutes (120,000ms) after watering
+            // 4 -> 5: 24 hours (86,400,000ms)
+
+            if (gs.currentLevel === 2) {
+              if (now >= (gs.waterNeededAt || 0)) {
+                targetLevel = 3;
+              }
+            } else if (gs.currentLevel === 3) {
+              if (gs.isWatered && now >= (gs.harvestReadyAt || 0)) {
+                targetLevel = 4;
+              }
+            }
 
             if (targetLevel !== gs.currentLevel) {
               changed = true;
               const updates: any = { currentLevel: targetLevel, lastUpdate: now };
-              if (targetLevel === 4) updates.harvestReadyAt = now;
+              if (targetLevel === 4) updates.deathAt = now + 86400000; // 24 hours to stage 5
               return { ...b, growthState: { ...gs, ...updates } };
             }
 
-            // Check for death (level 5) after 24h of being ready to harvest
-            if (gs.currentLevel === 4 && gs.harvestReadyAt) {
-               if (now - gs.harvestReadyAt > 86400000) { // 24 hours
+            // Check for death (level 5) after 24h
+            if (gs.currentLevel === 4 && gs.deathAt) {
+               if (now >= gs.deathAt) {
                  changed = true;
                  return { ...b, growthState: { ...gs, currentLevel: 5, lastUpdate: now } };
                }
@@ -843,14 +936,43 @@ export const useGameState = () => {
         });
         return changed ? next : prev;
       });
-    }, 10000);
+    }, 5000); // 5s check for responsiveness
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
     if (!exploredTerritory || spawnedResources.length >= 50) return;
-    const needed = 10 - spawnedResources.length;
+    const needed = 20 - spawnedResources.length;
     if (needed <= 0) return;
+
+    const bbox = turf.bbox(exploredTerritory);
+    const newResources: any[] = [];
+    const types = ['wood', 'metal', 'coins'];
+    const icons: any = { wood: '/images/tools-wood.png', metal: '/images/tools-iron.png', coins: '/images/tools-coins.png' };
+
+    for (let i = 0; i < needed; i++) {
+      const lng = bbox[0] + Math.random() * (bbox[2] - bbox[0]);
+      const lat = bbox[1] + Math.random() * (bbox[3] - bbox[1]);
+      
+      try {
+        if (turf.booleanPointInPolygon(turf.point([lng, lat]), exploredTerritory)) {
+          const type = types[Math.floor(Math.random() * types.length)];
+          newResources.push({
+            id: `res-${Date.now()}-${Math.random()}`,
+            type,
+            lng,
+            lat,
+            icon: icons[type]
+          });
+        }
+      } catch (e) {
+        // Skip invalid points
+      }
+    }
+    
+    if (newResources.length > 0) {
+      setSpawnedResources((current: any) => [...current, ...newResources]);
+    }
   }, [exploredTerritory, spawnedResources.length]);
 
   return {
@@ -887,6 +1009,10 @@ export const useGameState = () => {
     npcs,
     removedDecorations,
     catType,
-    setCatType
+    setCatType,
+    playerName,
+    setPlayerName,
+    hasCompletedOnboarding,
+    setHasCompletedOnboarding
   };
 };

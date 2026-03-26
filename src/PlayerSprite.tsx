@@ -16,13 +16,11 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, catTy
   };
 
   const row = directionMap[direction];
-  
   const frameSize = 32;
-  const sheetWidth = 192;
-  const sheetHeight = 128;
 
+  // Use unique key for the main div based on catType to force re-render/style update
   return (
-    <div className="player-sprite-container" style={{ 
+    <div key={catType} className="player-sprite-container" style={{ 
       width: `${frameSize}px`, 
       height: `${frameSize}px`,
       transform: 'translateZ(0)',
@@ -33,28 +31,17 @@ const PlayerSprite: React.FC<PlayerSpriteProps> = ({ direction, isWalking, catTy
       // @ts-ignore
       imageRendering: 'crisp-edges'
     }}>
-      <style>{`
-        @keyframes walk-anim-steps {
-          from { background-position-x: 0px; }
-          to { background-position-x: -${sheetWidth}px; }
-        }
-        .cat-sprite-sheet {
-          width: ${sheetWidth}px;
-          height: ${sheetHeight}px;
-          background-image: url('/images/${catType === 'orange-cat' ? 'orange-cat.png' : 'grey-cat.png'}');
-          background-repeat: no-repeat;
-          position: absolute;
-          image-rendering: pixelated;
-          image-rendering: crisp-edges;
-          transform: translateZ(0);
-        }
-        .cat-walking-active {
-          animation: walk-anim-steps 0.8s steps(6) infinite;
-        }
-      `}</style>
       <div 
-        className={`cat-sprite-sheet ${isWalking ? 'cat-walking-active' : ''}`}
+        className={`cat-sprite-sheet ${isWalking ? 'cat-walking-active' : 'cat-idle-active'}`}
         style={{
+          width: '192px',
+          height: '128px',
+          backgroundRepeat: 'no-repeat',
+          position: 'absolute',
+          imageRendering: 'pixelated',
+          // @ts-ignore
+          imageRendering: 'crisp-edges',
+          backgroundImage: `url('/images/${catType}.png')`,
           backgroundPositionY: `-${row * frameSize}px`,
           left: 0,
           top: 0,

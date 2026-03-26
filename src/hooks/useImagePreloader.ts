@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const CRITICAL_IMAGES = [
   '/images/backpack.png',
@@ -22,14 +22,48 @@ const CRITICAL_IMAGES = [
   '/images/tools-coins.png',
   '/images/tools-village.png',
   '/images/tools-map.png',
-  '/images/settings.png'
+  '/images/settings.png',
+  '/images/grey-cat.png',
+  '/images/orange-cat.png',
+  '/images/black-cat.png',
+  '/images/work-racoon.png',
+  '/images/vac-fox.png',
+  '/images/grass texture.png',
+  '/images/sand.jpg',
+  '/images/water.jpg',
+  '/images/onboarding-1.png',
+  '/images/onboarding-2.png',
+  '/images/onboarding-3.png',
+  '/images/onboarding-4.png',
+  '/images/onboarding-5.png',
+  '/images/logo.png'
 ];
 
 export const useImagePreloader = () => {
+  const [imagesLoaded, setImagesLoaded] = useState(false);
+
   useEffect(() => {
-    CRITICAL_IMAGES.forEach((src) => {
-      const img = new Image();
-      img.src = src;
+    let isCancelled = false;
+
+    const loadImage = (src: string) => {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.src = src;
+        img.onload = () => resolve(src);
+        img.onerror = () => resolve(src); // Resolve anyway to not block
+      });
+    };
+
+    Promise.all(CRITICAL_IMAGES.map(loadImage)).then(() => {
+      if (!isCancelled) {
+        setImagesLoaded(true);
+      }
     });
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
+
+  return imagesLoaded;
 };
