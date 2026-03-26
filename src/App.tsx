@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useGameState } from './useGameState'
 import { ResourcesPanel, LevelCircle } from './HUD'
 import BuildMenu from './BuildMenu'
-// import MapComponent from './MapComponent'
+import MapComponent from './MapComponent'
 import LoginScreen from './LoginScreen'
 import RoleSelection from './RoleSelection'
 import BottomNav from './BottomNav'
@@ -17,7 +17,7 @@ import { ISLAND_MAP, TILE_SIZE, TILE_TYPES, getMapOffset } from './MapConstants'
 import type { Obstacle } from './types/game'
 import './App.css'
 
-const MapComponent = lazy(() => import('./MapComponent'));
+// const MapComponent = lazy(() => import('./MapComponent'));
 
 function App() {
   const imagesLoaded = useImagePreloader();
@@ -738,42 +738,36 @@ function App() {
               }
             }}
           >
-            <Suspense fallback={
-              <div className="w-full h-full bg-[#cbd5e1] flex items-center justify-center font-['Press_Start_2P'] text-[10px] text-[#5d4a44]">
-                LOADING MAP...
-              </div>
-            }>
-              <MapComponent 
-                isTripping={isTripping} 
-                onToggleTrip={handleToggleTrip}
-                exploredTerritory={exploredTerritory}
-                onAddTerritory={addTerritory}
-                spawnedResources={spawnedResources}
-                onSetSpawnedResources={setSpawnedResources}
-                onCollect={(id: string, type: string, amount: number) => {
-                  collectResource(id, type, amount);
-                  handleHarvestNotification(type, amount);
-                }}
-                resources={resources}
-                setResources={setResources}
-                addWalkDistance={addWalkDistance}
-                totalDistanceWalked={totalDistanceWalked}
-                isPlacing={isPlacing}
-                pendingBuilding={pendingBuilding}
-                onPlaceBuilding={(type: string, cost: any, lat: number, lng: number) => {
-                  if (!type) {
-                    setIsPlacing(false);
-                    setPendingBuilding(null);
-                    return;
-                  }
-                  addBuilding(type, cost, { x: lng, y: lat });
+            <MapComponent 
+              isTripping={isTripping} 
+              onToggleTrip={handleToggleTrip}
+              exploredTerritory={exploredTerritory}
+              onAddTerritory={addTerritory}
+              spawnedResources={spawnedResources}
+              onSetSpawnedResources={setSpawnedResources}
+              onCollect={(id: string, type: string, amount: number) => {
+                collectResource(id, type, amount);
+                handleHarvestNotification(type, amount);
+              }}
+              resources={resources}
+              setResources={setResources}
+              addWalkDistance={addWalkDistance}
+              totalDistanceWalked={totalDistanceWalked}
+              isPlacing={isPlacing}
+              pendingBuilding={pendingBuilding}
+              onPlaceBuilding={(type: string, cost: any, lat: number, lng: number) => {
+                if (!type) {
                   setIsPlacing(false);
                   setPendingBuilding(null);
-                }}
-                buildings={buildings}
-                catType={catType}
-              />
-            </Suspense>
+                  return;
+                }
+                addBuilding(type, cost, { x: lng, y: lat });
+                setIsPlacing(false);
+                setPendingBuilding(null);
+              }}
+              buildings={buildings}
+              catType={catType}
+            />
           </div>
         )}
 

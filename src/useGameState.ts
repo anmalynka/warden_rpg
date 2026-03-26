@@ -271,26 +271,43 @@ export const useGameState = () => {
       const map = prevMap.map(row => [...row]);
 
       // Expand in a 3x3 area around the clicked point
+      const tilesToChange: {r: number, c: number}[] = [];
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           const r = startR + dr;
           const c = startC + dc;
-
           if (r >= 0 && r < currentSize && c >= 0 && c < currentSize) {
-            const currentTile = map[r][c];
-            if (currentTile === TILE_TYPES.WATER) {
-              map[r][c] = TILE_TYPES.SAND;
-            } else if (currentTile === TILE_TYPES.SAND) {
-              map[r][c] = TILE_TYPES.GRASS;
-            }
-            // If already GRASS, do nothing
+            tilesToChange.push({r, c});
           }
         }
       }
+
+      // Convert all tiles in the 3x3 to SAND first if they were WATER
+      tilesToChange.forEach(({r, c}) => {
+        if (map[r][c] === TILE_TYPES.WATER) {
+          map[r][c] = TILE_TYPES.SAND;
+        }
+      });
+
+      // Then randomly pick 5-8 tiles to become GRASS
+      const grassCount = 5 + Math.floor(Math.random() * 4); // 5, 6, 7, or 8
+      const shuffled = [...tilesToChange].sort(() => 0.5 - Math.random());
+      shuffled.slice(0, grassCount).forEach(({r, c}) => {
+        map[r][c] = TILE_TYPES.GRASS;
+      });
+
       return map;
     });
+
+    // Schedule resource refill in 2.5 minutes (150000 ms)
+    setTimeout(() => {
+      // Logic to spawn resources manually or trigger a state update that the resource useEffect picks up
+      // For simplicity, we can just clear a bit of spawnedResources if it's full to force the effect to run
+      setSpawnedResources(prev => prev.slice(0, Math.max(0, prev.length - 10)));
+    }, 150000);
+
     return true;
-  }, [resources.coins, expansionCost, level, addXp]);
+  }, [resources.coins, expansionCost, level, addXp, setSpawnedResources]);
 
   const addBuilding = useCallback((type: string, cost: any, position?: { x: number, y: number }) => {
     // Deduct resources
@@ -347,7 +364,7 @@ export const useGameState = () => {
     }
 
     if (action === 'collect-default-wood') {
-      setInventory(inv => ({ ...inv, wood: (inv.wood || 0) + 1 }));
+      setResources(r => ({ ...r, wood: (r.wood || 0) + 1 }));
       addXp(2); // Keep existing XP
       setTreeCooldowns(prev => ({ ...prev, [id]: now + 60000 })); // 1 minute cooldown
       return;

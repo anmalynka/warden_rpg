@@ -599,7 +599,9 @@ const TownView = ({
                            imageRendering: 'crisp-edges',
                            backgroundImage: `url(/images/${npc.char === 'racoon' ? 'work-racoon.png' : 'vac-fox.png'})`,
                            backgroundSize: '192px 128px',
-                           backgroundPositionX: (npc.isWalking || npc.status === 'working') ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` : '0px',
+                           backgroundPositionX: (npc.isWalking || npc.status === 'working') 
+                             ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` 
+                             : `-${(Math.floor(Date.now() / 800) % 2) * 32}px`,
                            backgroundPositionY: `-${(npc.facing === 'up' ? 3 : npc.facing === 'left' ? 1 : npc.facing === 'right' ? 2 : 0) * 32}px`,
                          }}
                        />
