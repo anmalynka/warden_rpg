@@ -19,7 +19,8 @@ const MapComponent = ({
   pendingBuilding = null,
   onPlaceBuilding,
   buildings = [],
-  catType = 'grey-cat'
+  catType = 'grey-cat',
+  devMode = false
 }: any) => {
 
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -167,10 +168,12 @@ const MapComponent = ({
         
         markerRef.current = marker;
         
-        // Handle Map Clicks for Building Placement
+        // Handle Map Clicks for Building Placement or Manual Movement
         map.on('click', (e) => {
            if (window.isPlacingGlobal && window.pendingBuildingGlobal) {
               onPlaceBuilding(window.pendingBuildingGlobal.type, window.pendingBuildingGlobal.cost, [e.lngLat.lng, e.lngLat.lat]);
+           } else if (devMode) {
+              updateGameStatePos(e.lngLat.lng, e.lngLat.lat, map, markerRef.current);
            }
         });
 
@@ -184,6 +187,7 @@ const MapComponent = ({
     };
 
     const handleGeoSuccess = (pos: GeolocationPosition) => {
+      if (devMode) return;
       const { longitude, latitude } = pos.coords;
       setLocationError(null);
       setIsSearchingGPS(false);
@@ -402,7 +406,7 @@ const MapComponent = ({
     const closest = spawnedResources.find((res: any) => {
       const dist = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'meters' });
       if (dist < 10) console.log(`Resource ${res.id} is ${dist.toFixed(2)}m away`);
-      return dist < 1;
+      return dist < 2;
     });
 
     if (closest) console.log("Found nearby resource:", closest.type);

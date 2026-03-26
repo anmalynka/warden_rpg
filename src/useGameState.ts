@@ -103,6 +103,11 @@ export const useGameState = () => {
     return saved === 'true';
   });
 
+  const [devMode, setDevMode] = useState(() => {
+    const saved = localStorage.getItem('warden_dev_mode');
+    return saved === 'true'; // Defaults to false if not present or 'false'
+  });
+
   const [removedDecorations, setRemovedDecorations] = useState<string[]>(() => {
     const saved = localStorage.getItem('warden_removed_decorations');
     return saved ? JSON.parse(saved) : [];
@@ -366,7 +371,7 @@ export const useGameState = () => {
     if (action === 'collect-default-wood') {
       setResources(r => ({ ...r, wood: (r.wood || 0) + 1 }));
       addXp(2); // Keep existing XP
-      setTreeCooldowns(prev => ({ ...prev, [id]: now + 60000 })); // 1 minute cooldown
+      setTreeCooldowns(prev => ({ ...prev, [id]: now + 12 * 60 * 60 * 1000 })); // 12 hours cooldown
       return;
     }
 
@@ -1011,6 +1016,16 @@ export const useGameState = () => {
         return b;
       }));
 
+      setTreeCooldowns(prev => {
+        const next = { ...prev };
+        let changed = false;
+        Object.keys(next).forEach(key => {
+          next[key] -= bonusTime;
+          changed = true;
+        });
+        return changed ? next : prev;
+      });
+
       setNpcs(prev => prev.map(n => {
         if (n.type === 'vacationer') {
           return {
@@ -1112,6 +1127,10 @@ export const useGameState = () => {
     }
   }, [exploredTerritory, spawnedResources.length]);
 
+  useEffect(() => {
+    localStorage.setItem('warden_dev_mode', devMode.toString());
+  }, [devMode]);
+
   return {
     resources,
     setResources,
@@ -1154,6 +1173,8 @@ export const useGameState = () => {
     playerName,
     setPlayerName,
     hasCompletedOnboarding,
-    setHasCompletedOnboarding
+    setHasCompletedOnboarding,
+    devMode,
+    setDevMode
   };
 };

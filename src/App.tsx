@@ -52,7 +52,9 @@ function App() {
     playerName,
     setPlayerName,
     hasCompletedOnboarding,
-    setHasCompletedOnboarding
+    setHasCompletedOnboarding,
+    devMode,
+    setDevMode
     } = useGameState();
 
   const [appState, setAppState] = useState(() => {
@@ -767,6 +769,7 @@ function App() {
               }}
               buildings={buildings}
               catType={catType}
+              devMode={devMode}
             />
           </div>
         )}
@@ -784,6 +787,16 @@ function App() {
                 <div className="flex flex-col items-center gap-2">
                    <div className="text-[7px] text-[#8b7a6d] uppercase">ROLE</div>
                    <div className="text-[14px] text-[#3e2723]">{role?.name}</div>
+                </div>
+
+                <div className="flex items-center justify-between bg-[#f1ebe3] p-4 rounded-2xl shadow-sm mt-4">
+                  <span className="text-[#3e2723] text-[9px]">DEV MODE</span>
+                  <button 
+                    onClick={() => setDevMode(!devMode)}
+                    className={`w-12 h-6 rounded-full transition-colors relative ${devMode ? 'bg-green-500' : 'bg-[#d1c4b9]'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${devMode ? 'left-7' : 'left-1'}`} />
+                  </button>
                 </div>
 
                 <div className="flex flex-col gap-3 mt-4">
@@ -1339,7 +1352,7 @@ function App() {
       )}
 
       {/* Floating Debug Button for Mobile testing */}
-      {activeTab === 'village' && (
+      {activeTab === 'village' && devMode && (
         <div className="fixed bottom-24 left-6 z-[2000]">
           <button 
             onClick={handleHarvest}

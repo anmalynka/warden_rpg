@@ -13,9 +13,9 @@ const BuildMenu = ({ resources, level, onBuild }) => {
     { id: 'house', type: 'starter-house', name: 'FOUNDER’S LODGE', description: 'Rest here to pass the time.', icon: '/images/house.png', isImage: true, cost: { wood: 50, coins: 20 }, minLevel: 1 },
     { id: 'garden-bed', type: 'garden-bed', name: 'GARDEN BED', description: 'Plant vegetables here.', icon: '/images/garden-bed-wheat-1.png', isImage: true, cost: { wood: 10, coins: 5 }, minLevel: 1 },
     { id: 'garden-tree', type: 'garden-tree', name: 'GARDEN TREE', description: 'Plant fruit trees here.', icon: '/images/garden-apple-4.png', isImage: true, cost: { coins: 30 }, minLevel: 3 },
-    { id: 'mini-house', type: 'mini-house', name: 'WORKER’S CONDO', description: 'Attracts a Raccoon worker to tend your garden.', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 }, minLevel: 12 },
-    { id: 'shop', type: 'shop', name: 'GENERAL STORE', description: 'Buy raw materials and resources.', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 }, minLevel: 9 },
     { id: 'market', type: 'market', name: 'FARMERS’ MARKET', description: 'Sell your harvest for coins.', icon: '/images/Market.png', isImage: true, cost: { wood: 100, metal: 20, coins: 50 }, minLevel: 6 },
+    { id: 'shop', type: 'shop', name: 'GENERAL STORE', description: 'Buy raw materials and resources.', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 }, minLevel: 9 },
+    { id: 'mini-house', type: 'mini-house', name: 'WORKER’S CONDO', description: 'Attracts a Raccoon worker to tend your garden.', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 }, minLevel: 12 },
     { id: 'hotel', type: 'hotel', name: 'FOXGLOVE INN', description: 'Attracts foxes who pay 100 coins per hour.', icon: '/images/Storage.png', isImage: true, cost: { wood: 200, metal: 200, coins: 100 }, minLevel: 20 }
   ];
 
