@@ -41,7 +41,7 @@ const MapComponent = ({
   const [mousePos, setMousePos] = useState<{x: number, y: number} | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
-  const zoom = 14.5;
+  const zoom = 15.5;
 
   // Stable Refs for callbacks and props used in timers/gps
   const propsRef = useRef({ 
@@ -157,15 +157,16 @@ const MapComponent = ({
     const map = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-      center, zoom, attributionControl: false, maxZoom: 21, pitchWithRotate: true
+      center, zoom, attributionControl: false, maxZoom: 24, pitchWithRotate: true
     });
+
     mapRef.current = map;
 
     map.on('load', () => {
       setMapReady(true);
       map.resize();
       
-      const { exploredTerritory, isTripping } = propsRef.current;
+      const { exploredTerritory, isTripping, devMode } = propsRef.current;
       
       map.addSource('territory', { type: 'geojson', data: (exploredTerritory || { type: 'FeatureCollection', features: [] }) as any });
       map.addSource('fog-of-war', { type: 'geojson', data: getFogData(center, exploredTerritory) as any });
@@ -185,7 +186,7 @@ const MapComponent = ({
          el.innerHTML = `<img src="/images/grey-cat-avatar.png" style="width: 32px; height: 32px; object-fit: contain;" />`;
       }
       
-      const marker = new maplibregl.Marker({ element: el, draggable: true })
+      const marker = new maplibregl.Marker({ element: el, draggable: devMode, anchor: 'bottom' })
         .setLngLat(center)
         .addTo(map);
       
@@ -205,6 +206,13 @@ const MapComponent = ({
     });
   }, [getFogData, updateGameStatePos, updateMarkerToCat]);
 
+  // Sync marker draggability
+  useEffect(() => {
+    if (markerRef.current) {
+      markerRef.current.setDraggable(devMode);
+    }
+  }, [devMode]);
+
   // GPS WATCHER (Runs once)
   useEffect(() => {
     let watchId: number | null = null;
@@ -219,7 +227,6 @@ const MapComponent = ({
         mapInitialized = true;
         initMap(longitude, latitude);
       } else if (mapRef.current) {
-        // Only update automatically if not in devMode or just following GPS
         const { devMode } = propsRef.current;
         if (!devMode) {
           updateGameStatePos(longitude, latitude, mapRef.current, markerRef.current);
@@ -266,7 +273,7 @@ const MapComponent = ({
         mapRef.current = null; 
       } 
     };
-  }, []); // Run only once
+  }, []); 
 
   // MODE STYLING & MARKER RE-SYNC
   useEffect(() => {
@@ -296,7 +303,7 @@ const MapComponent = ({
           map.setPaintProperty(l.id, 'line-opacity', 0.9);
         }
       });
-      map.easeTo({ pitch: 45, zoom: 17, duration: 1000 });
+      map.easeTo({ pitch: 45, zoom: 19, duration: 1000 });
     } else {
       map.getStyle().layers.forEach((l: any) => { if (l.id.includes('label')) map.setLayoutProperty(l.id, 'visibility', 'visible'); });
       roadLayers.forEach((l: any) => {
@@ -306,7 +313,7 @@ const MapComponent = ({
           map.setPaintProperty(l.id, 'line-opacity', 0.5);
         }
       });
-      map.easeTo({ pitch: 0, zoom: 14.5, duration: 1000 });
+      map.easeTo({ pitch: 0, zoom: 15.5, duration: 1000 });
     }
   }, [isTripping, mapReady, catType, updateMarkerToCat]);
 
@@ -317,9 +324,9 @@ const MapComponent = ({
 
     const { isTripping, spawnedResources, playerPos, exploredTerritory } = propsRef.current;
     
-    const visibleResources = isTripping 
-      ? spawnedResources 
-      : spawnedResources.filter((r: any) => r.type !== 'coins');
+    // In Explore mode, we show question marks for resources.
+    // In Trip mode, we show actual icons.
+    const visibleResources = spawnedResources;
 
     // Remove old
     Object.keys(resourceMarkers.current).forEach(id => { 
@@ -333,7 +340,7 @@ const MapComponent = ({
     visibleResources.forEach((res: any) => {
       const inExplored = exploredTerritory ? turf.booleanPointInPolygon(turf.point([res.lng, res.lat]), exploredTerritory) : false;
       const distToPlayer = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'kilometers' });
-      const isVisible = inExplored || distToPlayer < 0.1;
+      const isVisible = inExplored || distToPlayer < 0.2; // Slightly larger visibility radius on map
 
       if (isVisible) {
         if (!resourceMarkers.current[res.id]) {
@@ -343,34 +350,45 @@ const MapComponent = ({
           el.style.height = isTripping ? '48px' : '32px';
           const inner = document.createElement('div');
           inner.className = 'flex items-center justify-center w-full h-full';
+          
           if (isTripping) {
+            inner.innerHTML = '';
             if (res.icon.includes('/')) {
               inner.style.backgroundImage = `url(${res.icon})`;
               inner.style.backgroundSize = 'contain';
               inner.style.backgroundRepeat = 'no-repeat';
               inner.style.backgroundPosition = 'center';
             } else {
+              inner.style.backgroundImage = 'none';
               inner.innerHTML = `<span style="font-size: 32px;">${res.icon}</span>`;
             }
           } else {
+            inner.style.backgroundImage = 'none';
             inner.innerHTML = `<div class="bg-white/80 border-2 border-[#8b7a6d] rounded-full w-full h-full flex items-center justify-center shadow-md"><span class="text-[10px] text-[#5d4a44] font-bold">?</span></div>`;
           }
+          
           el.appendChild(inner);
           resourceMarkers.current[res.id] = new maplibregl.Marker({ element: el }).setLngLat([res.lng, res.lat]).addTo(map);
         } else {
-          // Sync size/icon if mode changed
+          // Sync state if mode changed
           const marker = resourceMarkers.current[res.id];
           const el = marker.getElement();
           const inner = el.firstChild as HTMLElement;
           el.style.width = isTripping ? '48px' : '32px';
           el.style.height = isTripping ? '48px' : '32px';
-          if (isTripping && !inner.style.backgroundImage && res.icon.includes('/')) {
-             inner.style.backgroundImage = `url(${res.icon})`;
-             inner.style.backgroundSize = 'contain';
-             inner.style.backgroundRepeat = 'no-repeat';
-             inner.style.backgroundPosition = 'center';
+          
+          if (isTripping) {
              inner.innerHTML = '';
-          } else if (!isTripping && inner.style.backgroundImage) {
+             if (res.icon.includes('/')) {
+               inner.style.backgroundImage = `url(${res.icon})`;
+               inner.style.backgroundSize = 'contain';
+               inner.style.backgroundRepeat = 'no-repeat';
+               inner.style.backgroundPosition = 'center';
+             } else {
+               inner.style.backgroundImage = 'none';
+               inner.innerHTML = `<span style="font-size: 32px;">${res.icon}</span>`;
+             }
+          } else {
              inner.style.backgroundImage = 'none';
              inner.innerHTML = `<div class="bg-white/80 border-2 border-[#8b7a6d] rounded-full w-full h-full flex items-center justify-center shadow-md"><span class="text-[10px] text-[#5d4a44] font-bold">?</span></div>`;
           }
@@ -381,20 +399,22 @@ const MapComponent = ({
       }
     });
 
-    // Territory & Fog Data Update
     if (map.getSource('territory')) (map.getSource('territory') as any).setData(exploredTerritory || { type: 'FeatureCollection', features: [] });
     if (map.getSource('fog-of-war')) (map.getSource('fog-of-war') as any).setData(getFogData(playerPos, exploredTerritory));
   }, [mapReady, isTripping, spawnedResources, playerPos, exploredTerritory, getFogData]);
 
-  // PROXIMITY CHECK & TIMERS
+  // PROXIMITY CHECK
   useEffect(() => {
-    if (!mapReady || !spawnedResources.length) { setNearbyResource(null); return; }
+    if (!mapReady || !spawnedResources.length || !isTripping) { 
+      setNearbyResource(null); 
+      return; 
+    }
     const closest = spawnedResources.find((res: any) => {
       const dist = turf.distance(turf.point(playerPos), turf.point([res.lng, res.lat]), { units: 'meters' });
       return dist <= 2;
     });
     setNearbyResource(closest || null);
-  }, [playerPos, mapReady, spawnedResources]);
+  }, [playerPos, mapReady, spawnedResources, isTripping]);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -449,7 +469,16 @@ const MapComponent = ({
   const handleZoomIn = () => mapRef.current?.zoomIn();
   const handleZoomOut = () => mapRef.current?.zoomOut();
   const handleRecenter = () => {
-    if (mapRef.current) mapRef.current.easeTo({ center: playerPos, duration: 1000 });
+    if (mapRef.current) {
+      mapRef.current.flyTo({ 
+        center: playerPos, 
+        zoom: isTripping ? 19 : 15.5,
+        pitch: isTripping ? 45 : 0,
+        bearing: 0,
+        essential: true,
+        duration: 1200
+      });
+    }
   };
 
   const getBuildingEmoji = (type: string) => {
@@ -481,11 +510,9 @@ const MapComponent = ({
         <button onClick={handleZoomOut} className="w-12 h-12 btn-off-white flex items-center justify-center p-2 pointer-events-auto active:scale-95">
           <img src="/images/zoom-out.png" className="w-full h-full object-contain" alt="Zoom Out" />
         </button>
-        {isTripping && (
-          <button onClick={handleRecenter} className="w-12 h-12 btn-off-white flex items-center justify-center mt-2 p-2 pointer-events-auto active:scale-95">
-            <img src="/images/recenter.png" className="w-full h-full object-contain" alt="Recenter" />
-          </button>
-        )}
+        <button onClick={handleRecenter} className="w-12 h-12 btn-off-white flex items-center justify-center mt-2 p-2 pointer-events-auto active:scale-95">
+          <img src="/images/recenter.png" className="w-full h-full object-contain" alt="Recenter" />
+        </button>
       </div>
 
       {isTripping && (

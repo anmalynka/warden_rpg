@@ -537,15 +537,13 @@ export const useGameState = () => {
     });
   }, []);
 
-  const collectResource = useCallback((id: string, type: string, amount: number = 10) => {
+  const collectResource = useCallback((id: string, type: string, amount: number = 1) => {
     setSpawnedResources(prev => prev.filter((r: any) => r.id !== id));
     setResources((prev: any) => ({
       ...prev,
-      [type]: (prev[type] || 0) + amount,
-      coins: (prev.coins || 0) + 5
+      [type]: (prev[type] || 0) + amount
     }));
-    addXp(Math.floor(amount / 5)); // +1 for every 5 resources gathered
-  }, [addXp]);
+  }, []);
 
   const resetGame = useCallback((newCatType?: string, newPlayerName?: string) => {
     // Nuclear clear for all warden_ keys
@@ -868,6 +866,11 @@ export const useGameState = () => {
                 }
               } else {
                 nextNpc.isWalking = false;
+                // If a Fox is blocked, clear its path and reset lastAction to force a new wandering calculation
+                if (nextNpc.type === 'vacationer' && nextNpc.status === 'staying') {
+                  nextNpc.path = [];
+                  nextNpc.lastAction = 0; // Force immediate recalculation in the next logic block
+                }
               }
             }
           } else {
@@ -919,29 +922,33 @@ export const useGameState = () => {
           }
 
           if (nextNpc.type === 'vacationer') {
-            if (nextNpc.status === 'arriving') {
-              const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
-              if (hotel) {
-                // Target is just outside the hotel's 2x2 area
-                const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
-                const targetGrid = { c: hotelGrid.c, r: hotelGrid.r + 2 }; // 2 tiles below center point
+            const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
+            if (!hotel) return null; // Foxes disappear if no hotel exists
 
-                if (nextNpc.c === targetGrid.c && nextNpc.r === targetGrid.r) {
-                  return { ...nextNpc, status: 'staying', lastAction: now };
-                } else if (nextNpc.path.length === 0) {
-                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, targetGrid, islandMap, nextNpc.type, nextNpc.targetHotelId);
-                  if (path) return { ...nextNpc, path };
-                }
-              } else {
-                 return { ...nextNpc, status: 'leaving', path: [] };
+            if (nextNpc.status === 'arriving') {
+              // Target is just outside the hotel's 2x2 area
+              const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
+              const targetGrid = { c: hotelGrid.c, r: hotelGrid.r + 2 }; // 2 tiles below center point
+
+              if (nextNpc.c === targetGrid.c && nextNpc.r === targetGrid.r) {
+                return { ...nextNpc, status: 'staying', lastAction: now };
+              } else if (nextNpc.path.length === 0) {
+                const path = findPath({c: nextNpc.c, r: nextNpc.r}, targetGrid, islandMap, nextNpc.type, nextNpc.targetHotelId);
+                if (path) return { ...nextNpc, path };
               }
             } else if (nextNpc.status === 'staying') {
+              const hotel = buildings.find(b => b.id === nextNpc.targetHotelId);
+              if (!hotel) {
+                 return { ...nextNpc, status: 'leaving', path: [] };
+              }
+
               if (now >= nextNpc.stayUntil) {
-                // Final payment upon natural departure
+                // Final payment upon natural departure: 50 coins
                 setResources(r => ({ ...r, coins: (r.coins || 0) + 50 }));
                 return { ...nextNpc, status: 'leaving', path: [] };
               }
-              if (now - nextNpc.lastPayment >= 60000) {
+              // Pay 50 coins every 10 minutes (600,000 ms)
+              if (now - nextNpc.lastPayment >= 600000) {
                 setResources(r => ({ ...r, coins: (r.coins || 0) + 50 }));
                 return { ...nextNpc, lastPayment: now };
               }
