@@ -64,6 +64,12 @@ export const generateIslandMap = (size: number = INITIAL_GRID_SIZE) => {
 };
 
 export const getBuildingTiles = (type: string, c: number, r: number) => {
+  if (type === 'lucky-farm') {
+    return [
+      { r, c }, { r, c: c + 1 }, { r, c: c + 2 }, { r, c: c + 3 },
+      { r: r + 1, c }, { r: r + 1, c: c + 1 }, { r: r + 1, c: c + 2 }, { r: r + 1, c: c + 3 }
+    ];
+  }
   if (type === 'starter-house' || type === 'mini-house' || type === 'hotel' || type === 'market') {
     return [
       { r, c },
@@ -76,6 +82,11 @@ export const getBuildingTiles = (type: string, c: number, r: number) => {
 };
 
 export const getBuildingHitbox = (type: string, x: number, y: number) => {
+  if (type === 'lucky-farm') {
+    // 128x64 total. Collision is 128x32.
+    // Center is (x,y). We block the "back" half.
+    return { x: x - 64, y: y - 32, w: 128, h: 32 };
+  }
   if (type === 'market') {
     return { x: x - 25, y: y - 38, w: 50, h: 70 };
   }

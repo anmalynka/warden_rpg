@@ -273,16 +273,20 @@ const TownView = ({
       return;
     }
 
+    if (building.type === 'lucky-farm') {
+       // Just let it open the action menu as usual
+    }
+
     const hasActionMenu = [
       'garden-bed', 
       'garden-tree', 
       'starter-house', 
       'mini-house', 
-      'shop', 
-      'market', 
-      'hotel'
+      'shop',
+      'market',
+      'hotel',
+      'lucky-farm'
     ].includes(building.type);
-
     if (hasActionMenu) {
       const gs = building.growthState;
       if (gs && gs.currentLevel === 1 && !gs.produceType && (building.type === 'garden-bed' || building.type === 'garden-tree')) {
@@ -537,10 +541,35 @@ const TownView = ({
                     <img src="/images/Market.png" alt="Market" className="w-[64px] h-[32px] object-contain" style={{ imageRendering: 'pixelated' }} />
                   ) : building.type === 'hotel' ? (
                     <img src="/images/Storage.png" alt="Hotel" className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
+                  ) : building.type === 'lucky-farm' ? (
+                    <div className="relative">
+                       <img 
+                         src={building.hotelStatus?.farmStatus === 'dead' ? '/images/farm-dead.png' : '/images/farm-alive.png'} 
+                         alt="Lucky Farm" 
+                         className="w-[128px] h-[64px]" 
+                         style={{ imageRendering: 'pixelated', display: 'block' }}
+                         />
+                         {building.hotelStatus && (
+                           <div className="absolute top-[-20px] left-1/2 -translate-x-1/2 flex gap-2 items-center">
+                              {(building.hotelStatus.producedItems?.milk > 0 || building.hotelStatus.producedItems?.wool > 0) && (
+                                 <img src="/images/garden-pick.png" className="w-[16px] h-[16px] object-contain animate-bounce" alt="Ready to Collect" />
+                              )}
+                              {building.hotelStatus.moisture < 100 && building.hotelStatus.farmStatus === 'alive' && (                               <img src="/images/garden-watering-can.png" className="w-[16px] h-[16px] object-contain animate-bounce" alt="Needs Water" />
+                            )}
+                            {building.hotelStatus.farmStatus === 'dead' ? (
+                               <img src="/images/garden-shovel.png" className="w-[16px] h-[16px] object-contain animate-bounce" alt="Needs Shovel" />
+                            ) : (
+                               <img 
+                                 src={building.hotelStatus.moisture < 50 ? "/images/sad.png" : "/images/happy.png"} 
+                                 className="w-[16px] h-[16px] object-contain" 
+                                 alt={building.hotelStatus.moisture < 50 ? "Sad" : "Happy"} 
+                               />
+                            )}                         </div>
+                       )}
+                    </div>
                   ) : (
-                    <img src={`/images/${building.type}.png`} alt={building.type} className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} onError={(e: any) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'block'; }} />
+                    <img src={`/images/${building.type}.png`} alt={building.type} className="w-[72px] h-[72px] object-contain" style={{ imageRendering: 'pixelated' }} />
                   )}
-                  <span className="text-4xl hidden" role="img" aria-label={building.type}>{getBuildingEmoji(building.type)}</span>
                 </div>
               </div>
             );
@@ -597,7 +626,12 @@ const TownView = ({
                            imageRendering: 'pixelated',
                            // @ts-ignore
                            imageRendering: 'crisp-edges',
-                           backgroundImage: `url(/images/${npc.char === 'racoon' ? 'work-racoon.png' : 'vac-fox.png'})`,
+                           backgroundImage: `url(/images/${
+                             npc.char === 'racoon' ? 'work-racoon.png' : 
+                             npc.char === 'fox' ? 'vac-fox.png' : 
+                             npc.char === 'cow' ? 'cow.png' : 
+                             npc.char === 'sheep' ? 'sheep.png' : 'vac-fox.png'
+                           })`,
                            backgroundSize: '192px 128px',
                            backgroundPositionX: (npc.isWalking || npc.status === 'working') 
                              ? `-${(Math.floor(Date.now() / 150) % 6) * 32}px` 
@@ -618,12 +652,11 @@ const TownView = ({
                style={{
                  left: Math.round(mousePos.x + (currentSize * TILE_SIZE) / 2),
                  top: Math.round(mousePos.y + (currentSize * TILE_SIZE) / 2 + (getBuildingTiles(pendingBuilding.type, 0, 0).length > 1 ? 32 : 16)),
-                 zIndex: 100,
+                 zIndex: 500,
                  opacity: 0.8
                }}
              >
                {(() => {
-                 const isMulti = getBuildingTiles(pendingBuilding.type, 0, 0).length > 1;
                  const gridPos = worldToGrid(mousePos.x, mousePos.y, currentSize);
                  const pendingTiles = getBuildingTiles(pendingBuilding.type, gridPos.c, gridPos.r);
                  const playerGrid = worldToGrid(avatarPos.x, avatarPos.y, currentSize);
@@ -635,27 +668,33 @@ const TownView = ({
                        : ob.r === rr && ob.c === cc
                    );
 
-                 const isOccupied = pendingTiles.some(t => {
-                   return checkOccupied(t.c, t.r) || (t.c === playerGrid.c && t.r === playerGrid.r);
-                 });
-                 const isTerrainValid = pendingTiles.every(t => {                   const tType = currentMap[t.r]?.[t.c];
-                   // Strictly only allow building on grass (3)
-                   return tType === TILE_TYPES.GRASS;
-                 });
+                 const isMulti = pendingTiles.length > 1;
+                 const isLuckyFarm = pendingBuilding.type === 'lucky-farm';
 
                  return (
                    <div className="relative">
-                      {/* Exact Footprint Highlight */}
+                      {/* Grid footprint */}
                       <div 
-                        className={`absolute rounded-sm ${isTerrainValid && !isOccupied ? 'bg-green-500/40' : 'bg-red-500/60'} border-2 border-white/40`} 
+                        className="absolute"
                         style={{ 
-                          width: isMulti ? 64 : 32, 
-                          height: isMulti ? 64 : 32,
-                          left: 0,
-                          top: 0,
-                          transform: 'translate(-50%, -100%)'
-                        }} 
-                      />
+                          left: 0, top: 0, 
+                          transform: 'translate(-50%, -100%)',
+                          display: 'grid',
+                          gridTemplateColumns: `repeat(${isLuckyFarm ? 4 : (isMulti ? 2 : 1)}, 32px)`,
+                          gridTemplateRows: `repeat(${isLuckyFarm ? 2 : (isMulti ? 2 : 1)}, 32px)`,
+                        }}
+                      >
+                        {pendingTiles.map((t, idx) => {
+                           const tOccupied = checkOccupied(t.c, t.r) || (t.c === playerGrid.c && t.r === playerGrid.r);
+                           const tTerrainValid = currentMap[t.r]?.[t.c] === TILE_TYPES.GRASS;
+                           return (
+                             <div 
+                               key={idx}
+                               className={`w-8 h-8 border border-white/20 ${tOccupied || !tTerrainValid ? 'bg-red-500/60' : 'bg-green-500/40'}`}
+                             />
+                           );
+                        })}
+                      </div>
                       
                       {/* Building Image */}
                       <div style={{ transform: 'translate(-50%, -100%)' }} className="flex flex-col items-center">
@@ -673,8 +712,10 @@ const TownView = ({
                           <img src="/images/Market.png" alt="Ghost" className="w-[64px] h-[32px] object-contain" />
                         ) : pendingBuilding.type === 'hotel' ? (
                           <img src="/images/Storage.png" alt="Ghost" className="w-[72px] h-[72px] object-contain" />
+                        ) : pendingBuilding.type === 'lucky-farm' ? (
+                          <img src="/images/farm-alive.png" alt="Ghost" className="w-[128px] h-[64px] object-contain" />
                         ) : (
-                          <span className="text-4xl">{getBuildingEmoji(pendingBuilding.type)}</span>
+                          <img src={`/images/${pendingBuilding.type}.png`} alt="Ghost" className="w-[72px] h-[72px] object-contain" />
                         )}
                       </div>
                    </div>

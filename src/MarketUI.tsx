@@ -15,7 +15,9 @@ const MarketUI: React.FC<MarketUIProps> = ({ inventory, onSell, onClose }) => {
     { id: 'pumpkin', name: 'PUMPKIN', icon: '/images/garden-pumpkin.png', price: 12 },
     { id: 'apple', name: 'APPLE', icon: '/images/garden-apple.png', price: 12 },
     { id: 'peach', name: 'PEACH', icon: '/images/garden-peach.png', price: 10, bonusWood: 1 },
-    { id: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry.png', price: 15 }
+    { id: 'cherry', name: 'CHERRY', icon: '/images/garden-cherry.png', price: 15 },
+    { id: 'milk', name: 'MILK', icon: '/images/milk.png', price: 25 },
+    { id: 'wool', name: 'SHEALING', icon: '/images/shealing.png', price: 15, bonusWood: 10 }
   ];
 
   const handleAmountChange = (amt: number) => setSellAmount(amt);

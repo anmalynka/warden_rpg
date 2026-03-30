@@ -22,6 +22,7 @@ import './App.css'
 function App() {
   const imagesLoaded = useImagePreloader();
   const { 
+    isLoaded, autoSave,
     resources, setResources, buildings, addBuilding, 
     exploredTerritory, addTerritory, 
     spawnedResources, setSpawnedResources, collectResource,
@@ -58,6 +59,8 @@ function App() {
     } = useGameState();
 
   const [appState, setAppState] = useState(() => {
+    // Note: We use isLoaded effect to sync appState later, 
+    // but we can still check localStorage for immediate initial render
     if (!localStorage.getItem('warden_has_completed_onboarding') || localStorage.getItem('warden_has_completed_onboarding') === 'false') {
       return 'onboarding';
     }
@@ -66,6 +69,15 @@ function App() {
     }
     return 'main';
   });
+
+  // Sync appState after persistence is loaded
+  useEffect(() => {
+    if (isLoaded) {
+      if (!hasCompletedOnboarding) setAppState('onboarding');
+      else if (!catType) setAppState('character-selection');
+      else setAppState('main');
+    }
+  }, [isLoaded, hasCompletedOnboarding, catType]);
 
   const [user, setUser] = useState(playerName);
   const [role, setRole] = useState({ name: 'Warden', icon: '🛡️' });
@@ -97,6 +109,7 @@ function App() {
     setPlayerName(name);
     setCatType(type);
     setAppState('main');
+    autoSave(true); // Immediate save after character selection
   };
 
   useEffect(() => {
@@ -469,7 +482,8 @@ function App() {
       const marketItems = [
         { id: 'wheat', price: 10, bonusWood: 3 },
         { id: 'tomato', price: 8, bonusWood: 1 },
-        { id: 'peach', price: 10, bonusWood: 1 }
+        { id: 'peach', price: 10, bonusWood: 1 },
+        { id: 'wool', price: 15, bonusWood: 10 }
       ];
       const match = marketItems.find(i => i.id === item);
       const bonusWood = (match?.bonusWood || 0) * amount;
@@ -494,6 +508,8 @@ function App() {
       { id: 'apple', label: 'APPLE', icon: '/images/garden-apple.png' },
       { id: 'peach', label: 'PEACH', icon: '/images/garden-peach.png' },
       { id: 'cherry', label: 'CHERRY', icon: '/images/garden-cherry.png' },
+      { id: 'milk', label: 'MILK', icon: '/images/milk.png' },
+      { id: 'wool', label: 'SHEALING', icon: '/images/shealing.png' },
     ];
 
     return (
@@ -912,7 +928,8 @@ function App() {
                     'mini-house': 'WORKER’S CONDO',
                     'shop': 'GENERAL STORE',
                     'market': 'FARMERS’ MARKET',
-                    'hotel': 'FOXGLOVE INN'
+                    'hotel': 'FOXGLOVE INN',
+                    'lucky-farm': 'LUCKY FARM'
                   };
 
                   let title = BUILDING_NAMES[b.type] || b.type.replace('-', ' ').toUpperCase();
@@ -921,7 +938,22 @@ function App() {
                       title = b.growthState.produceType.toUpperCase();
                     }
                   }
-                  return <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>;
+                  return (
+                    <div className="flex flex-col items-center gap-2 w-full">
+                      <h3 className="text-[#3e2723] text-[12px] uppercase text-center">{title}</h3>
+                      {b.type === 'lucky-farm' && b.hotelStatus && (
+                        <div className="w-full max-w-[200px] bg-[#e6ded5] h-4 rounded-full overflow-hidden border border-[#d1c4b9] relative">
+                          <div 
+                            className="h-full bg-blue-400 transition-all duration-500"
+                            style={{ width: `${b.hotelStatus.moisture}%` }}
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center text-[6px] text-[#3e2723] font-bold">
+                            MOISTURE: {Math.round(b.hotelStatus.moisture)}%
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
                 })()}
                 
                 <div className="grid grid-cols-1 gap-4 w-full">
@@ -1082,6 +1114,135 @@ function App() {
                               </button>
                             )}
                             </>
+                            )}
+
+                            {/* Lucky Farm Specific Actions */}
+                            {b.type === 'lucky-farm' && (
+                            <div className="flex flex-col gap-3">
+                            {b.hotelStatus?.farmStatus === 'alive' ? (
+                              <>
+                              {b.hotelStatus?.moisture < 100 && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    interactWithBuilding(b.id, 'water-hotel');
+                                    setSelectedBedForActionMenu(null);
+                                  }}
+                                  className="flex items-center gap-4 btn-off-white p-4 text-left"
+                                >
+                                  <img src="/images/garden-watering-can.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Water" />
+                                  <span className="text-[#3e2723] text-[10px]">WATER GRASS</span>
+                                </button>
+                              )}
+
+                              {b.hotelStatus?.producedItems && (b.hotelStatus.producedItems.milk > 0 || b.hotelStatus.producedItems.wool > 0) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    interactWithBuilding(b.id, 'collect-farm');
+                                    setSelectedBedForActionMenu(null);
+                                  }}
+                                  className="flex items-center gap-4 btn-off-white p-4 text-left border-2 border-green-500"
+                                >
+                                  <img src="/images/garden-pick.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Collect" />
+                                  <div className="flex flex-col">
+                                    <span className="text-green-600 text-[10px] font-bold uppercase">COLLECT</span>
+                                    <span className="text-[#8b7a6d] text-[7px] uppercase">
+                                      {b.hotelStatus.producedItems.milk} Milk, {b.hotelStatus.producedItems.wool} Shealing
+                                      </span>                                  </div>
+                                </button>
+                              )}
+
+                              <div className="grid grid-cols-2 gap-2">
+                                {(() => {
+                                  const cows = b.hotelStatus.guests.filter((g: any) => g.type === 'cow').length;
+                                  return (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (cows < 3) {
+                                          interactWithBuilding(b.id, 'invite-cow');
+                                          setSelectedBedForActionMenu(null);
+                                        }
+                                      }}
+                                      disabled={cows >= 3}
+                                      className={`flex flex-col items-center gap-2 btn-off-white p-3 text-center ${cows >= 3 ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                    >
+                                      <img src="/images/avatar-cow.png" className="w-8 h-8 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Cow" />
+                                      <div className="flex flex-col">
+                                        <span className="text-[#3e2723] text-[8px]">INVITE COW</span>
+                                        <span className="text-[#8b7a6d] text-[6px] uppercase">{cows}/3</span>
+                                      </div>
+                                    </button>
+                                  );
+                                })()}
+                                {(() => {
+                                  const sheeps = b.hotelStatus.guests.filter((g: any) => g.type === 'sheep').length;
+                                  return (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (sheeps < 3) {
+                                          interactWithBuilding(b.id, 'invite-sheep');
+                                          setSelectedBedForActionMenu(null);
+                                        }
+                                      }}
+                                      disabled={sheeps >= 3}
+                                      className={`flex flex-col items-center gap-2 btn-off-white p-3 text-center ${sheeps >= 3 ? 'opacity-50 grayscale cursor-not-allowed' : ''}`}
+                                    >
+                                      <img src="/images/avatar-sheep.png" className="w-8 h-8 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Sheep" />
+                                      <div className="flex flex-col">
+                                        <span className="text-[#3e2723] text-[8px]">INVITE SHEEP</span>
+                                        <span className="text-[#8b7a6d] text-[6px] uppercase">{sheeps}/3</span>
+                                      </div>
+                                    </button>
+                                  );
+                                })()}
+                              </div>
+                              </>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  interactWithBuilding(b.id, 'renew-farm');
+                                  setSelectedBedForActionMenu(null);
+                                }}
+                                className="flex items-center gap-4 btn-off-white p-4 text-left w-full border-2 border-red-500"
+                              >
+                                <img src="/images/garden-shovel.png" className="w-10 h-10 object-contain pixel-art" style={{ imageRendering: 'pixelated' }} alt="Renew" />
+                                <span className="text-red-500 text-[10px] font-bold uppercase">Renew (Shovel)</span>
+                              </button>
+                            )}
+
+                            {b.hotelStatus?.guests.length > 0 && (
+                              <div className="flex flex-col gap-2 mt-1 bg-[#e6ded5] p-2 rounded-xl">
+                                <div className="text-[7px] text-[#8b7a6d] uppercase text-center font-bold">CURRENT ANIMALS</div>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                  {b.hotelStatus.guests.map((g: any) => (
+                                    <div key={g.id} className="flex flex-col items-center gap-1">
+                                      <div className="relative group">
+                                        <img src={`/images/${g.type === 'cow' ? 'avatar-cow' : 'avatar-sheep'}.png`} className="w-8 h-8 object-contain" alt={g.type} />
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            interactWithBuilding(b.id, 'leave-guest', { guestId: g.id });
+                                          }}
+                                          className="absolute -top-1 -right-1 bg-red-500 text-white w-4 h-4 rounded-full flex items-center justify-center text-[8px] border border-white"
+                                          title="Ask to leave"
+                                        >
+                                          X
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            <div className="text-[7px] text-[#8b7a6d] uppercase text-center mt-2">
+                               Moisture: {Math.round(b.hotelStatus?.moisture || 0)}%
+                            </div>
+                            </div>
                             )}
 
                             {/* Common Remove Action for all player buildings */}

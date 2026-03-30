@@ -16,6 +16,7 @@ const BuildMenu = ({ resources, level, onBuild }) => {
     { id: 'market', type: 'market', name: 'FARMERS’ MARKET', description: 'Sell your harvest for coins.', icon: '/images/Market.png', isImage: true, cost: { wood: 100, metal: 20, coins: 50 }, minLevel: 6 },
     { id: 'shop', type: 'shop', name: 'GENERAL STORE', description: 'Buy raw materials and resources.', icon: '/images/Shop.png', isImage: true, cost: { wood: 30, metal: 100, coins: 50 }, minLevel: 9 },
     { id: 'mini-house', type: 'mini-house', name: 'WORKER’S CONDO', description: 'Attracts a Raccoon worker to tend your garden.', icon: '/images/mini-house.png', isImage: true, cost: { wood: 100, metal: 50, coins: 100 }, minLevel: 12 },
+    { id: 'lucky-farm', type: 'lucky-farm', name: 'LUCKY FARM', description: 'Invite cows and sheep for milk and shealing.', icon: '/images/farm-alive.png', isImage: true, cost: { wood: 300, metal: 100, coins: 500 }, minLevel: 15 },
     { id: 'hotel', type: 'hotel', name: 'FOXGLOVE INN', description: 'Attracts foxes who pay 100 coins per hour.', icon: '/images/Storage.png', isImage: true, cost: { wood: 200, metal: 200, coins: 100 }, minLevel: 20 }
   ];
 

@@ -1,117 +1,105 @@
 import { useState, useCallback, useEffect } from 'react';
 import * as turf from '@turf/turf';
 import { generateIslandMap, TILE_TYPES, GRID_SIZE, INITIAL_GRID_SIZE, TILE_SIZE, getBuildingTiles, gridToWorldBuilding, gridToWorld, worldToGrid, getBuildingHitbox } from './MapConstants';
+import { PersistenceService } from './services/PersistenceService';
+import type { Item } from './services/PersistenceService';
 
 export const useGameState = () => {
+  const [isLoaded, setIsLoaded] = useState(false);
+
   // --- 1. STATE ---
-  const [islandMap, setIslandMap] = useState<number[][]>(() => {
-    const saved = localStorage.getItem('warden_map');
-    const map = saved ? JSON.parse(saved) : generateIslandMap(INITIAL_GRID_SIZE);
-    return map;
-  });
-
-  const [expansionCost, setExpansionCost] = useState(() => {
-    if (!localStorage.getItem('warden_map')) return 500;
-    const saved = localStorage.getItem('warden_expansion_cost');
-    return saved ? parseInt(saved) : 500;
-  });
-
-  const [resources, setResources] = useState(() => {
-    const saved = localStorage.getItem('warden_resources');
-    if (!localStorage.getItem('warden_map')) return { wood: 50, metal: 20, coins: 100 };
-    return saved ? JSON.parse(saved) : {
-      wood: 50,
-      metal: 20,
-      coins: 100
-    };
-  });
-
-  const [exploredTerritory, setExploredTerritory] = useState(() => {
-    const saved = localStorage.getItem('warden_territory');
-    return saved ? JSON.parse(saved) : null;
-  });
-
+  const [islandMap, setIslandMap] = useState<number[][]>(() => generateIslandMap(INITIAL_GRID_SIZE));
+  const [expansionCost, setExpansionCost] = useState(500);
+  const [resources, setResources] = useState({ wood: 50, metal: 20, coins: 100 });
+  const [exploredTerritory, setExploredTerritory] = useState<any>(null);
   const [spawnedResources, setSpawnedResources] = useState([]);
   const [lastSpawnLocations, setLastSpawnLocations] = useState([]);
-
-  const [buildings, setBuildings] = useState<any[]>(() => {
-    const saved = localStorage.getItem('warden_buildings');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [totalDistanceWalked, setTotalDistanceWalked] = useState(() => {
-    const saved = localStorage.getItem('warden_distance');
-    return saved ? JSON.parse(saved) : 0;
-  });
-
-  const [avatarPos, setAvatarPos] = useState({ x: 16, y: 32 }); // Base position (feet) at bottom of tile 12,12
-  const [villageZoom, setVillageZoom] = useState(2.5); // Zoomed in for the small grid
+  const [buildings, setBuildings] = useState<any[]>([]);
+  const [totalDistanceWalked, setTotalDistanceWalked] = useState(0);
+  const [avatarPos, setAvatarPos] = useState({ x: 16, y: 32 });
+  const [villageZoom, setVillageZoom] = useState(2.5);
   const [isInsideHouse, setIsInsideHouse] = useState(false);
   const [lastSleepTick, setLastSleepTick] = useState<number | null>(null);
   const [minutesSlept, setMinutesSlept] = useState(0);
-  
-  const [level, setLevel] = useState(() => {
-    const saved = localStorage.getItem('warden_level');
-    return saved ? JSON.parse(saved) : 1;
-  });
-
-  const [xp, setXp] = useState(() => {
-    const saved = localStorage.getItem('warden_xp');
-    return saved ? JSON.parse(saved) : 0;
-  });
-
-  const [totalXp, setTotalXp] = useState(() => {
-    const saved = localStorage.getItem('warden_total_xp');
-    return saved ? JSON.parse(saved) : 0;
-  });
-
+  const [level, setLevel] = useState(1);
+  const [xp, setXp] = useState(0);
+  const [totalXp, setTotalXp] = useState(0);
   const [lastLevelReached, setLastLevelReached] = useState<number | null>(null);
-
-  const [inventory, setInventory] = useState<{[key: string]: number}>(() => {
-    const saved = localStorage.getItem('warden_inventory');
-    return saved ? JSON.parse(saved) : {
-      wheat: 0,
-      tomato: 0,
-      pumpkin: 0,
-      apple: 0,
-      peach: 0,
-      cherry: 0,
-      wood: 0
-    };
+  const [inventory, setInventory] = useState<{[key: string]: number}>({
+    wheat: 0, tomato: 0, pumpkin: 0, apple: 0, peach: 0, cherry: 0, wood: 0, milk: 0, wool: 0
   });
-
   const [treeCooldowns, setTreeCooldowns] = useState<{[key: string]: number}>({});
+  const [npcs, setNpcs] = useState<any[]>([]);
+  const [catType, setCatType] = useState('grey-cat');
+  const [playerName, setPlayerName] = useState('Warden');
+  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
+  const [devMode, setDevMode] = useState(false);
+  const [removedDecorations, setRemovedDecorations] = useState<string[]>([]);
 
-  const [npcs, setNpcs] = useState<any[]>(() => {
-    const saved = localStorage.getItem('warden_npcs');
-    const parsed = saved ? JSON.parse(saved) : [];
-    return parsed;
-  });
+  const autoSave = useCallback((immediate = false) => {
+    PersistenceService.getInstance().save(immediate);
+  }, []);
 
-  const [catType, setCatType] = useState(() => {
-    const saved = localStorage.getItem('warden_cat_type');
-    return saved || 'grey-cat';
-  });
+  // --- Persistence Initialization ---
+  useEffect(() => {
+    const ps = PersistenceService.getInstance();
+    ps.init().then((state) => {
+      if (state.worldData) {
+        const wd = state.worldData;
+        if (wd.islandMap) setIslandMap(wd.islandMap);
+        if (wd.expansionCost) setExpansionCost(wd.expansionCost);
+        if (wd.resources) setResources(wd.resources);
+        if (wd.exploredTerritory) setExploredTerritory(wd.exploredTerritory);
+        if (wd.buildings) setBuildings(wd.buildings);
+        if (wd.totalDistanceWalked) setTotalDistanceWalked(wd.totalDistanceWalked);
+        if (wd.level) setLevel(wd.level);
+        if (wd.xp) setXp(wd.xp);
+        if (wd.totalXp) setTotalXp(wd.totalXp);
+        if (wd.npcs) setNpcs(wd.npcs);
+        if (wd.hasCompletedOnboarding !== undefined) setHasCompletedOnboarding(wd.hasCompletedOnboarding);
+        if (wd.removedDecorations) setRemovedDecorations(wd.removedDecorations);
+      }
+      setPlayerName(state.catName);
+      setCatType(state.catColor);
+      
+      // Inventory conversion
+      if (state.inventory && state.inventory.length > 0) {
+        const invMap: any = {};
+        state.inventory.forEach(item => invMap[item.id] = item.count);
+        setInventory(invMap);
+      }
+      
+      setIsLoaded(true);
+    });
+  }, []);
 
-  const [playerName, setPlayerName] = useState(() => {
-    const saved = localStorage.getItem('warden_player_name');
-    return saved || 'Warden';
-  });
-
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(() => {
-    const saved = localStorage.getItem('warden_has_completed_onboarding');
-    return saved === 'true';
-  });
-
-  const [devMode, setDevMode] = useState(() => {
-    const saved = localStorage.getItem('warden_dev_mode');
-    return saved === 'true'; // Defaults to false if not present or 'false'
-  });
-
-  const [removedDecorations, setRemovedDecorations] = useState<string[]>(() => {
-    const saved = localStorage.getItem('warden_removed_decorations');
-    return saved ? JSON.parse(saved) : [];
-  });
+  // --- Auto-Save Hooks ---
+  useEffect(() => {
+    if (!isLoaded) return;
+    const ps = PersistenceService.getInstance();
+    ps.setWorldValue('islandMap', islandMap);
+    ps.setWorldValue('expansionCost', expansionCost);
+    ps.setWorldValue('resources', resources);
+    ps.setWorldValue('exploredTerritory', exploredTerritory);
+    ps.setWorldValue('buildings', buildings);
+    ps.setWorldValue('totalDistanceWalked', totalDistanceWalked);
+    ps.setWorldValue('level', level);
+    ps.setWorldValue('xp', xp);
+    ps.setWorldValue('totalXp', totalXp);
+    ps.setWorldValue('npcs', npcs);
+    ps.setWorldValue('hasCompletedOnboarding', hasCompletedOnboarding);
+    ps.setWorldValue('removedDecorations', removedDecorations);
+    ps.setGameValue('catName', playerName);
+    ps.setGameValue('catColor', catType);
+    
+    // Inventory sync
+    const invArray: Item[] = Object.entries(inventory).map(([id, count]) => ({ id, name: id, count }));
+    ps.setGameValue('inventory', invArray);
+  }, [
+    isLoaded, islandMap, expansionCost, resources, exploredTerritory, buildings, 
+    totalDistanceWalked, level, xp, totalXp, npcs, playerName, catType, 
+    hasCompletedOnboarding, removedDecorations, inventory
+  ]);
 
   // --- 2. CALLBACKS (HELPERS) ---
   const getXpToNextLevel = useCallback((lvl: number) => {
@@ -352,12 +340,24 @@ export const useGameState = () => {
           isWatered: false
         };
       }
+
+      if (type === 'lucky-farm') {
+        newBuilding.hotelStatus = {
+          moisture: 100,
+          lastWateredAt: Date.now(),
+          guests: [], // { id, type, invitedAt, lastProducedAt }
+          farmStatus: 'alive',
+          lastActionAt: Date.now(),
+          producedItems: { milk: 0, wool: 0 }
+        };
+      }
       
       return [...prevBuildings, newBuilding];
     });
 
+    autoSave(true);
     return newId;
-  }, [resources, setResources, setBuildings, level, islandMap.length, addXp]);
+  }, [resources, setResources, setBuildings, level, islandMap.length, addXp, autoSave]);
 
   const interactWithBuilding = useCallback((id: string, action: string, data?: any, onHarvest?: any) => {
     const now = Date.now();
@@ -375,123 +375,170 @@ export const useGameState = () => {
       return;
     }
 
-    setBuildings(prev => prev.map(b => {
-      if (b.id !== id) return b;
-      
-      const gs = b.growthState;
+    // Side-effects handling OUTSIDE of setBuildings updater
+    const b = buildings.find(building => building.id === id);
+    if (!b) return;
 
-      switch (action) {
-        case 'select-produce':
-          addXp(2); // +2 for planting a crop/fruit
-          return {
-            ...b,
-            growthState: {
-              ...gs,
-              produceType: data.produceType,
-              lastProduceType: data.produceType,
-              currentLevel: 2, // Move to stage 2 right away
-              startTime: now,
-              lastUpdate: now,
-              isWatered: false,
-              waterNeededAt: now + 300000 // 5 minutes (300,000ms) until Stage 3
-            }
-          };
-        case 'water':
-          return { 
-            ...b, 
-            growthState: { 
-              ...gs, 
-              isWatered: true, 
-              lastUpdate: now,
-              harvestReadyAt: now + 120000 // Stage 4 in 2 min (120,000ms)
-            } 
-          };
-        case 'harvest':
-          if (gs.currentLevel === 4) {
-            // Award XP
-            addXp(3); // +3 for harvesting a crop/fruit
-            
-            // Add to Inventory only
-            const produce = gs.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
-            setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
-            
-            onHarvest?.(produce, 1);
-
-            // Revert to level 3 for trees, level 1 for beds
-            if (b.type === 'garden-tree') {
-                return {
-                  ...b,
-                  growthState: {
-                    ...gs,
-                    currentLevel: 3,
-                    isWatered: false,
-                    waterNeededAt: now + 300000, // 5 min
-                    lastUpdate: now
-                  }
-                };
-            }
-
-            // Revert to level 1 (empty state)
-            return {
-              ...b,
-              growthState: {
-                ...gs,
-                produceType: null,
-                currentLevel: 1,
-                isWatered: false,
-                startTime: now,
-                lastUpdate: now
-              }
-            };
-          }
-          break;
-        case 'clear':
-          if (gs.currentLevel >= 2) {
-            // Award XP for clearing dead plants
-            if (gs.currentLevel === 5) {
-                addXp(2); 
-            }
-
-            return {
-              ...b,
-              growthState: {
-                ...gs,
-                produceType: b.type === 'garden-tree' ? gs.produceType : null,
-                currentLevel: 1,
-                isWatered: false,
-                startTime: now,
-                lastUpdate: now
-              }
-            };
-          }
-          break;
-        case 'invite-worker':
-         return { ...b, hasWorkerRequested: true };
-        case 'invite-vacationer':
-         return { ...b, pendingVacationers: (b.pendingVacationers || 0) + 1, hasGuestsAskedToLeave: false };
-        case 'leave-vacationer':
-         return { ...b, pendingVacationers: 0, hasGuestsAskedToLeave: true };
-        case 'leave-worker':          // We handle NPC removal in the NPC useEffect
-          return { ...b, hasWorkerRequested: false };
-        case 'move':
-          // Handled by UI state (entering placement mode)
-          return b;
-        case 'remove':
-          return null;
-        case 'sleep':
-          setIsInsideHouse(true);
-          setLastSleepTick(Date.now());
-          setMinutesSlept(0);
-          return b;
-        case 'wake':
-          setIsInsideHouse(false);
-          setLastSleepTick(null);
-          setMinutesSlept(0);
-          return b;
+    if (action === 'select-produce') {
+      addXp(2);
+    } else if (action === 'harvest' && b.growthState?.currentLevel === 4) {
+      addXp(3);
+      const produce = b.growthState.produceType || (b.type === 'garden-tree' ? 'apple' : 'wheat');
+      setInventory(inv => ({ ...inv, [produce]: (inv[produce] || 0) + 1 }));
+      onHarvest?.(produce, 1);
+    } else if (action === 'clear' && b.growthState?.currentLevel === 5) {
+      addXp(2);
+    } else if (action === 'collect-farm') {
+      if (b.hotelStatus && b.hotelStatus.producedItems) {
+        const { milk, wool } = b.hotelStatus.producedItems;
+        if (milk > 0 || wool > 0) {
+          setInventory(inv => ({ 
+            ...inv, 
+            milk: (inv.milk || 0) + milk,
+            wool: (inv.wool || 0) + wool 
+          }));
+          addXp((milk + wool) * 2);
+        }
       }
-      return b;
-    }).filter(Boolean));
-  }, [setResources, setIsInsideHouse, level, treeCooldowns, addXp]);
+    } else if (action === 'sleep') {
+      setIsInsideHouse(true);
+      setLastSleepTick(Date.now());
+      setMinutesSlept(0);
+    } else if (action === 'wake') {
+      setIsInsideHouse(false);
+      setLastSleepTick(null);
+      setMinutesSlept(0);
+    }
+
+    setBuildings(prev => {
+      const next = prev.map(b => {
+        if (b.id !== id) return b;
+        
+        const gs = b.growthState;
+
+        switch (action) {
+          case 'select-produce':
+            return {
+              ...b,
+              growthState: {
+                ...gs,
+                produceType: data.produceType,
+                lastProduceType: data.produceType,
+                currentLevel: 2,
+                startTime: now,
+                lastUpdate: now,
+                isWatered: false,
+                waterNeededAt: now + 300000
+              }
+            };
+          case 'water':
+            return { 
+              ...b, 
+              growthState: { 
+                ...gs, 
+                isWatered: true, 
+                lastUpdate: now,
+                harvestReadyAt: now + 120000
+              } 
+            };
+          case 'harvest':
+            if (gs.currentLevel === 4) {
+              if (b.type === 'garden-tree') {
+                  return {
+                    ...b,
+                    growthState: {
+                      ...gs,
+                      currentLevel: 3,
+                      isWatered: false,
+                      waterNeededAt: now + 300000,
+                      lastUpdate: now
+                    }
+                  };
+              }
+              return {
+                ...b,
+                growthState: {
+                  ...gs,
+                  produceType: null,
+                  currentLevel: 1,
+                  isWatered: false,
+                  startTime: now,
+                  lastUpdate: now
+                }
+              };
+            }
+            break;
+          case 'clear':
+            if (gs.currentLevel >= 2) {
+              return {
+                ...b,
+                growthState: {
+                  ...gs,
+                  produceType: b.type === 'garden-tree' ? gs.produceType : null,
+                  currentLevel: 1,
+                  isWatered: false,
+                  startTime: now,
+                  lastUpdate: now
+                }
+              };
+            }
+            break;
+          case 'invite-worker':
+           return { ...b, hasWorkerRequested: true };
+          case 'invite-vacationer':
+           return { ...b, pendingVacationers: (b.pendingVacationers || 0) + 1, hasGuestsAskedToLeave: false };
+          case 'leave-vacationer':
+           return { ...b, pendingVacationers: 0, hasGuestsAskedToLeave: true };
+          case 'leave-worker':
+            return { ...b, hasWorkerRequested: false };
+          case 'water-hotel':
+            if (b.hotelStatus) {
+              return { ...b, hotelStatus: { ...b.hotelStatus, moisture: 100, lastWateredAt: now } };
+            }
+            return b;
+          case 'invite-cow':
+          case 'invite-sheep':
+            if (b.hotelStatus && b.hotelStatus.farmStatus === 'alive') {
+              const cows = b.hotelStatus.guests.filter((g: any) => g.type === 'cow').length;
+              const sheeps = b.hotelStatus.guests.filter((g: any) => g.type === 'sheep').length;
+              
+              if (action === 'invite-cow' && cows >= 3) return b;
+              if (action === 'invite-sheep' && sheeps >= 3) return b;
+
+              const guestType = action === 'invite-cow' ? 'cow' : 'sheep';
+              const newGuest = {
+                id: `guest-${Date.now()}-${Math.random()}`,
+                type: guestType,
+                invitedAt: now,
+                lastProducedAt: now
+              };
+              return { ...b, hotelStatus: { ...b.hotelStatus, guests: [...b.hotelStatus.guests, newGuest] } };
+            }
+            return b;
+          case 'collect-farm':
+            if (b.hotelStatus && b.hotelStatus.producedItems) {
+               return { ...b, hotelStatus: { ...b.hotelStatus, producedItems: { milk: 0, wool: 0 } } };
+            }
+            return b;
+          case 'leave-guest':
+              if (b.hotelStatus) {
+              const nextGuests = b.hotelStatus.guests.filter((g: any) => g.id !== data.guestId);
+              return { ...b, hotelStatus: { ...b.hotelStatus, guests: nextGuests } };
+              }
+              return b;
+          case 'renew-farm':
+              if (b.hotelStatus && b.hotelStatus.farmStatus === 'dead') {
+              return { ...b, hotelStatus: { ...b.hotelStatus, moisture: 100, lastWateredAt: now, farmStatus: 'alive', guests: [] } };
+              }
+              return b;
+          }
+        return b;
+      }).filter(Boolean);
+      return next;
+    });
+
+    autoSave(true);
+  }, [buildings, setResources, setIsInsideHouse, level, treeCooldowns, addXp, autoSave]);
 
   const addTerritory = useCallback((circle: any, pos: any) => {
     setExploredTerritory((prev: any) => {
@@ -553,18 +600,18 @@ export const useGameState = () => {
       }
     });
 
+    // Clear IndexedDB
+    PersistenceService.getInstance().clear();
+
     if (newCatType) {
        setCatType(newCatType);
-       localStorage.setItem('warden_cat_type', newCatType);
     }
 
     if (newPlayerName) {
        setPlayerName(newPlayerName);
-       localStorage.setItem('warden_player_name', newPlayerName);
     }
 
     setHasCompletedOnboarding(false);
-    localStorage.removeItem('warden_has_completed_onboarding');
 
     setBuildings([]);
     setLevel(1);
@@ -595,63 +642,6 @@ export const useGameState = () => {
   }, [setIslandMap, setExpansionCost, setNpcs, setTreeCooldowns, setResources, setInventory, setBuildings, setLevel, setXp, setExploredTerritory, setSpawnedResources, setTotalDistanceWalked, setAvatarPos, setRemovedDecorations, setCatType, setPlayerName, setHasCompletedOnboarding]);
 
   // --- 3. EFFECTS ---
-
-  // Persistence Effects
-  useEffect(() => {
-    localStorage.setItem('warden_map', JSON.stringify(islandMap));
-  }, [islandMap]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_expansion_cost', expansionCost.toString());
-  }, [expansionCost]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_resources', JSON.stringify(resources));
-  }, [resources]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_buildings', JSON.stringify(buildings));
-  }, [buildings]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_inventory', JSON.stringify(inventory));
-  }, [inventory]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_level', level.toString());
-  }, [level]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_xp', xp.toString());
-  }, [xp]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_total_xp', JSON.stringify(totalXp));
-  }, [totalXp]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_cat_type', catType);
-  }, [catType]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_player_name', playerName);
-  }, [playerName]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_has_completed_onboarding', hasCompletedOnboarding.toString());
-  }, [hasCompletedOnboarding]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_removed_decorations', JSON.stringify(removedDecorations));
-  }, [removedDecorations]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_distance', totalDistanceWalked.toString());
-  }, [totalDistanceWalked]);
-
-  useEffect(() => {
-    localStorage.setItem('warden_npcs', JSON.stringify(npcs));
-  }, [npcs]);
 
   // NPC Behavior & Lifecycle
   useEffect(() => {
@@ -706,31 +696,67 @@ export const useGameState = () => {
           }
         });
 
-        // Invite Vacationers & Eviction logic
         const hotels = buildings.filter(b => b.type === 'hotel');
+        const luckyFarms = buildings.filter(b => b.type === 'lucky-farm');
+
+        // Remove guests/workers if house no longer requests/exists
+        updatedNpcs = updatedNpcs.filter(npc => {
+          if (npc.type === 'worker') {
+            const mh = miniHouses.find(h => h.id === npc.homeId);
+            if (!mh || !mh.hasWorkerRequested) { changed = true; return false; }
+          }
+          if (npc.type === 'guest') {
+            const lf = luckyFarms.find(h => h.id === npc.hotelId);
+            if (!lf || !lf.hotelStatus.guests.some(g => g.id === npc.guestId)) { changed = true; return false; }
+          }
+          return true;
+        });
+
+        // 1. Spawning Logic: Lucky Farm Guests
+        luckyFarms.forEach(lf => {
+          lf.hotelStatus.guests.forEach((g: any) => {
+            const hasNpc = updatedNpcs.some(n => n.guestId === g.id);
+            if (!hasNpc) {
+              const gridPos = worldToGrid(lf.offset.x, lf.offset.y, currentSize);
+              // Spawn in the left half (64x64 area)
+              const worldPos = { x: lf.offset.x - 32 + (Math.random() - 0.5) * 32, y: lf.offset.y + (Math.random() - 0.5) * 32 };
+              updatedNpcs.push({
+                id: `guest-${g.id}`,
+                type: 'guest',
+                guestId: g.id,
+                hotelId: lf.id,
+                char: g.type,
+                c: gridPos.c,
+                r: gridPos.r,
+                x: worldPos.x,
+                y: worldPos.y,
+                path: [],
+                status: 'staying',
+                lastAction: now,
+                isWalking: false,
+                facing: 'down'
+              });
+              changed = true;
+            }
+          });
+        });
+
+        // 2. Spawning & Eviction Logic: Foxglove Inn
         hotels.forEach(hotel => {
-          // 1. Eviction Logic: Check if guests were asked to leave
           if (hotel.hasGuestsAskedToLeave) {
               const guests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id);
               if (guests.length > 0) {
-                  // Instant disappearance as requested
                   updatedNpcs = updatedNpcs.filter(n => !(n.type === 'vacationer' && n.targetHotelId === hotel.id));
                   changed = true;
               }
-              // Reset the flag and pending vacationers in buildings state
               setBuildings(prev => prev.map(b => b.id === hotel.id ? { ...b, hasGuestsAskedToLeave: false, pendingVacationers: 0 } : b));
           }
-
-          // 2. Spawning Logic
           if ((hotel.pendingVacationers || 0) > 0) {
             const currentGuests = updatedNpcs.filter(n => n.type === 'vacationer' && n.targetHotelId === hotel.id).length;
             if (currentGuests < 5) {
-              // Find a walkable tile near the hotel
               const hotelGrid = worldToGrid(hotel.offset.x, hotel.offset.y, currentSize);
               let sc = hotelGrid.c, sr = hotelGrid.r;
               let found = false;
-              
-              // Search in increasing circles around hotel
               for (let radius = 2; radius < 10 && !found; radius++) {
                 for (let dr = -radius; dr <= radius && !found; dr++) {
                   for (let dc = -radius; dc <= radius && !found; dc++) {
@@ -746,7 +772,6 @@ export const useGameState = () => {
                   }
                 }
               }
-
               const worldPos = gridToWorldLocal(sc, sr);
               updatedNpcs.push({
                 id: `vac-${now}-${Math.random()}`,
@@ -764,19 +789,23 @@ export const useGameState = () => {
                 isWalking: false,
                 facing: 'down'
               });
-
-              // Decrement pending count in buildings state
               setBuildings(prev => prev.map(b => b.id === hotel.id ? { ...b, pendingVacationers: b.pendingVacationers - 1 } : b));
               changed = true;
             }
           }
         });
 
-        // 2. Obstacle Map for NPCs (Buildings + Decorations)
+        // 3. Obstacle Map for NPCs (Buildings + Decorations)
         const buildingHitboxes = buildings.map(b => {
           if (!b.offset) return null;
           let w = 64, h = 64;
           if (b.type === 'garden-bed' || b.type === 'garden-tree' || b.type === 'shop') { w = 32; h = 32; }
+          
+          if (b.type === 'lucky-farm') {
+             // Block the "back" half (128x32) for NPCs
+             return { x: b.offset.x - 64, y: b.offset.y - 32, w: 128, h: 32 };
+          }
+          
           return { x: b.offset.x - w/2, y: b.offset.y - h/2, w, h };
         }).filter(Boolean);
 
@@ -882,8 +911,14 @@ export const useGameState = () => {
             const homeGrid = home ? worldToGrid(home.offset.x, home.offset.y, currentSize) : null;
 
             if (nextNpc.status === 'idle') {
-               // Look for work: Water, Harvest, or Replant
+               // Look for work: Water, Harvest, Replant, or Water/Collect Lucky Farm
                const targets = buildings.filter(b => {
+                 if (b.type === 'lucky-farm' && b.hotelStatus) {
+                   const hs = b.hotelStatus;
+                   const needsWater = hs.farmStatus === 'alive' && hs.moisture < 50;
+                   const readyToCollect = hs.producedItems && (hs.producedItems.milk > 0 || hs.producedItems.wool > 0);
+                   return needsWater || readyToCollect;
+                 }
                  if (!b.growthState) return false;
                  const gs = b.growthState;
                  const needsWater = gs.currentLevel === 3 && !gs.isWatered && Date.now() >= (gs.waterNeededAt || 0);
@@ -895,12 +930,21 @@ export const useGameState = () => {
 
                if (targets.length > 0) {
                  const target = targets[0];
-                 const targetGrid = target.growthState.coordinates;
+                 const targetGrid = target.growthState 
+                  ? { x: target.growthState.coordinates.x, y: target.growthState.coordinates.y }
+                  : worldToGrid(target.offset.x, target.offset.y, currentSize);
+                 
+                 // For Lucky Farm, we want to target the front row center
+                 if (target.type === 'lucky-farm') {
+                    targetGrid.y += 1;
+                    targetGrid.x += 1;
+                 }
+
                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap, nextNpc.type, target.id);
                  if (path) {
                     return { ...nextNpc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
                  }
-               } else if (homeGrid && (nextNpc.c !== homeGrid.c || nextNpc.r !== homeGrid.r) && nextNpc.path.length === 0) {
+               } else if (homeGrid && (nextNpc.c !== homeGrid.c || homeGrid.r !== nextNpc.r) && nextNpc.path.length === 0) {
                  const path = findPath({c: nextNpc.c, r: nextNpc.r}, homeGrid, islandMap, nextNpc.type, nextNpc.homeId);
                  if (path) return { ...nextNpc, path };
                }
@@ -908,13 +952,22 @@ export const useGameState = () => {
                return { ...nextNpc, status: 'working', lastAction: now };
             } else if (nextNpc.status === 'working' && now - nextNpc.lastAction > 3000) {
                const target = buildings.find(b => b.id === nextNpc.targetId);
-               if (target && target.growthState) {
-                  const gs = target.growthState;
-                  if (gs.currentLevel === 3) interactWithBuilding(target.id, 'water');
-                  else if (gs.currentLevel === 4) interactWithBuilding(target.id, 'harvest');
-                  else if (gs.currentLevel === 5) interactWithBuilding(target.id, 'clear');
-                  else if (gs.currentLevel === 1 && gs.lastProduceType) {
-                    interactWithBuilding(target.id, 'select-produce', { produceType: gs.lastProduceType });
+               if (target) {
+                  if (target.type === 'lucky-farm' && target.hotelStatus) {
+                    const hs = target.hotelStatus;
+                    if (hs.producedItems && (hs.producedItems.milk > 0 || hs.producedItems.wool > 0)) {
+                      interactWithBuilding(target.id, 'collect-farm');
+                    } else if (hs.farmStatus === 'alive' && hs.moisture < 50) {
+                      interactWithBuilding(target.id, 'water-hotel');
+                    }
+                  } else if (target.growthState) {
+                    const gs = target.growthState;
+                    if (gs.currentLevel === 3) interactWithBuilding(target.id, 'water');
+                    else if (gs.currentLevel === 4) interactWithBuilding(target.id, 'harvest');
+                    else if (gs.currentLevel === 5) interactWithBuilding(target.id, 'clear');
+                    else if (gs.currentLevel === 1 && gs.lastProduceType) {
+                      interactWithBuilding(target.id, 'select-produce', { produceType: gs.lastProduceType });
+                    }
                   }
                }
                return { ...nextNpc, status: 'idle', targetId: null };
@@ -982,6 +1035,40 @@ export const useGameState = () => {
             } else if (nextNpc.status === 'leaving') {
               // Foxes disappear instantly as requested
               return null;
+            }
+          }
+
+          if (nextNpc.type === 'guest') {
+            const lf = luckyFarms.find(h => h.id === nextNpc.hotelId);
+            if (!lf) return null;
+
+            // Sightseeing Movement: Random wandering on grass or sand (like foxes)
+            if (nextNpc.path.length === 0 && now - (nextNpc.lastAction || 0) > 1000 + Math.random() * 3000) {
+              // Pick a random nearby walkable tile (Grass or Sand)
+              const walkableTiles: {c: number, r: number}[] = [];
+              const searchRadius = 8; // Larger wandering radius for cows/sheep
+              for (let dr = -searchRadius; dr <= searchRadius; dr++) {
+                for (let dc = -searchRadius; dc <= searchRadius; dc++) {
+                  const r = nextNpc.r + dr;
+                  const c = nextNpc.c + dc;
+                  if (r >= 0 && r < currentSize && c >= 0 && c < currentSize) {
+                    const tile = islandMap[r][c];
+                    if (tile === TILE_TYPES.GRASS || tile === TILE_TYPES.SAND) {
+                      walkableTiles.push({c, r});
+                    }
+                  }
+                }
+              }
+
+              if (walkableTiles.length > 0) {
+                const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
+                const path = findPath({c: nextNpc.c, r: nextNpc.r}, target, islandMap, nextNpc.type, nextNpc.hotelId);
+                if (path) {
+                  return { ...nextNpc, path, lastAction: now };
+                }
+              }
+              // Update lastAction even if no path found to avoid checking every tick
+              return { ...nextNpc, lastAction: now };
             }
           }
 
@@ -1091,6 +1178,68 @@ export const useGameState = () => {
                }
             }
           }
+
+          if (b.type === 'lucky-farm' && b.hotelStatus) {
+            const hs = b.hotelStatus;
+            let nextHs = { ...hs };
+            let hsChanged = false;
+
+            // Moisture Logic: 100 to 0 in 5 minutes (300,000 ms)
+            const elapsedSinceWater = now - hs.lastWateredAt;
+            const newMoisture = Math.max(0, 100 - (elapsedSinceWater / 300000) * 100);
+            if (Math.abs(newMoisture - hs.moisture) > 1) {
+              nextHs.moisture = newMoisture;
+              hsChanged = true;
+            }
+
+            // Death/Unhappy Logic: if not watered for > 6 hours (21,600,000 ms)
+            if (elapsedSinceWater > 21600000) { 
+              if (hs.farmStatus !== 'dead') {
+                nextHs.farmStatus = 'dead';
+                nextHs.guests = []; // All leave
+                hsChanged = true;
+              }
+            } else if (hs.guests.length > 0 && newMoisture <= 0) {
+               // Guests leave if unhappy (moisture is 0)
+               // The user didn't specify changing the "leaving" logic here, 
+               // but the 6h death is now strictly from lastWateredAt.
+            }
+
+            // Production Logic: Cow (10 min), Sheep (10 min)
+            if (hs.guests.length > 0 && hs.farmStatus === 'alive') {
+              let prodMilk = 0;
+              let prodWool = 0;
+              
+              nextHs.guests = hs.guests.map(g => {
+                const interval = 600000; // 10 minutes (600,000 ms) for both
+                const lastProd = g.lastProducedAt || g.invitedAt;
+                
+                // We produce as long as farm is alive
+                if (now - lastProd >= interval) {
+                  const count = Math.floor((now - lastProd) / interval);
+                  if (g.type === 'cow') prodMilk += count;
+                  else prodWool += count;
+                  return { ...g, lastProducedAt: lastProd + (count * interval) };
+                }
+                return g;
+              });
+
+              if (prodMilk > 0 || prodWool > 0) {
+                nextHs.producedItems = {
+                  milk: (nextHs.producedItems?.milk || 0) + prodMilk,
+                  wool: (nextHs.producedItems?.wool || 0) + prodWool
+                };
+                hsChanged = true;
+              }
+              
+              if (JSON.stringify(nextHs.guests) !== JSON.stringify(hs.guests)) hsChanged = true;
+            }
+
+            if (hsChanged) {
+              changed = true;
+              return { ...b, hotelStatus: nextHs };
+            }
+          }
           return b;
         });
         return changed ? next : prev;
@@ -1135,10 +1284,13 @@ export const useGameState = () => {
   }, [exploredTerritory, spawnedResources.length]);
 
   useEffect(() => {
-    localStorage.setItem('warden_dev_mode', devMode.toString());
-  }, [devMode]);
+    if (!isLoaded) return;
+    PersistenceService.getInstance().setWorldValue('devMode', devMode);
+  }, [devMode, isLoaded]);
 
   return {
+    isLoaded,
+    autoSave,
     resources,
     setResources,
     exploredTerritory,
