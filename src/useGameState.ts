@@ -931,16 +931,16 @@ export const useGameState = () => {
                if (targets.length > 0) {
                  const target = targets[0];
                  const targetGrid = target.growthState 
-                  ? { x: target.growthState.coordinates.x, y: target.growthState.coordinates.y }
+                  ? { c: target.growthState.coordinates.x, r: target.growthState.coordinates.y }
                   : worldToGrid(target.offset.x, target.offset.y, currentSize);
                  
                  // For Lucky Farm, we want to target the front row center
                  if (target.type === 'lucky-farm') {
-                    targetGrid.y += 1;
-                    targetGrid.x += 1;
+                    targetGrid.r += 1;
+                    targetGrid.c += 1;
                  }
 
-                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.x, r: targetGrid.y}, islandMap, nextNpc.type, target.id);
+                 const path = findPath({c: nextNpc.c, r: nextNpc.r}, {c: targetGrid.c, r: targetGrid.r}, islandMap, nextNpc.type, target.id);
                  if (path) {
                     return { ...nextNpc, status: 'moving_to_work', targetId: target.id, path: path.slice(0, -1) };
                  }
